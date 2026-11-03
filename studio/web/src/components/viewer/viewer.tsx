@@ -400,11 +400,13 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(function Viewer(
               playsInline
               preload="auto"
               onEnded={() => setPlaying(false)}
+              // Always full size; the corner preview is the same element scaled down from its
+              // bottom-left corner, so shrinking and growing back animate as exact reverses.
+              // Radius and ring are sized up to come out at ~6 px / 1 px after the 0.22 scale.
               className={cn(
-                "absolute bg-black object-fill transition-all duration-300",
-                view === "overlay"
-                  ? "inset-0 size-full"
-                  : "bottom-3 left-3 z-20 w-[22%] rounded-md opacity-90 shadow-2xl ring-1 ring-white/15",
+                "absolute inset-0 size-full origin-bottom-left bg-black object-fill transition-all duration-300 ease-out",
+                view !== "overlay" &&
+                  "z-20 translate-x-3 -translate-y-3 scale-[0.22] rounded-[27px] opacity-90 shadow-2xl ring-[4px] ring-white/15",
                 // Hidden, not removed: the video keeps driving playback.
                 !showMedia && "invisible",
               )}
