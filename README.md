@@ -39,6 +39,12 @@
 3. Pick which models to download when asked, or skip and use the **Models** page later.
 4. Start **GEM-X Studio** from the Desktop or Start Menu shortcut (or `studio.bat`).
 
+Want nothing at all outside the folder? Answer **yes** to *Portable install* (or run
+`install.bat -Portable`). Download caches (uv, npm, Hugging Face) then live in `.tools`
+and are emptied when the installer finishes. The caches Studio writes while it runs,
+and its window profile, stay in `.tools` too. Only the shortcuts are created elsewhere;
+add `-NoShortcut` to skip them.
+
 **You need:** 64-bit Windows 10 or 11, an internet connection and, for usable speed, an
 NVIDIA GPU with a recent driver (CUDA 12.6 or newer) and about 7 GB of free VRAM for Body
 Motion. **Disk:** about 8 GB for Body Pose, 12 GB with Body Motion and 24 GB with every

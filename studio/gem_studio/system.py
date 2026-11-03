@@ -6,7 +6,16 @@ import subprocess
 import sys
 import threading
 
-from .paths import DATA_DIR, REPO_ROOT, SOMA_DIR, WEIGHTS_DIR, ffmpeg_executable, python_executable
+from .paths import (
+    CACHE_DIR,
+    DATA_DIR,
+    PORTABLE,
+    REPO_ROOT,
+    SOMA_DIR,
+    WEIGHTS_DIR,
+    ffmpeg_executable,
+    python_executable,
+)
 
 _PROBE = r"""
 import json, importlib.util
@@ -85,6 +94,8 @@ def info(native=False):
         "machine": platform.machine(),
         "repo_root": str(REPO_ROOT),
         "data_dir": str(DATA_DIR),
+        "portable": PORTABLE,
+        "cache_dir": str(CACHE_DIR) if PORTABLE else None,
         "weights_dir": str(WEIGHTS_DIR),
         "soma_dir": str(SOMA_DIR),
         "ffmpeg": ffmpeg_executable(),

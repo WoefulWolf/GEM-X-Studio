@@ -47,8 +47,34 @@ Installer options (pass after `install.bat`):
 install.bat -Models body_pose,body_motion -Yes   :: unattended, chosen models
 install.bat -Torch cpu                           :: force a PyTorch build (auto, cpu, cu126, cu128, cu130)
 install.bat -NoShortcut                          :: skip Desktop / Start Menu shortcuts
+install.bat -Portable                            :: keep every cache inside the folder (see below)
+install.bat -Portable -KeepCache                 :: ...but keep the download caches for faster reinstalls
 install.bat -Help                                :: all options
 ```
+
+### Portable install
+
+By default the installer reuses the download caches in your user profile
+(`%LOCALAPPDATA%\uv\cache`, `%LOCALAPPDATA%\npm-cache`), which saves time and
+space when other Python or Node projects share them. While Studio runs, a few
+libraries also keep small caches in the profile: the Hugging Face transfer cache,
+NVIDIA Warp kernels compiled by SOMA, and the CUDA compute cache. The app window's
+browser profile lives in `%LOCALAPPDATA%\GEM-X Studio`.
+
+Answer **yes** to *Portable install*, or pass `-Portable`, to keep all of that
+inside the folder:
+
+| Location | Contents |
+| --- | --- |
+| `.tools\cache\uv`, `npm`, `huggingface` | Install-time downloads; emptied when the installer finishes, unless you pass `-KeepCache` |
+| `.tools\cache\warp`, `nvidia`, `torch`, ... | Caches written while Studio runs (a few MB) |
+| `.tools\webview` | The app window's browser profile |
+
+The choice is stored in `.tools\portable`: Studio reads it at startup, and later
+`install.bat` runs keep the setting. `install.bat -Shared` switches back to the
+shared caches. Settings → Locations shows which mode is active. The only
+files a portable install places elsewhere are the shortcuts; add `-NoShortcut` to
+skip them.
 
 To remove the environment and shortcuts while keeping models and runs, run
 `powershell -ExecutionPolicy Bypass -File scripts\windows\uninstall.ps1`

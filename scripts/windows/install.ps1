@@ -12,10 +12,18 @@
   optionally downloads models, and adds Desktop / Start Menu shortcuts.
   Nothing is installed system-wide. Re-running it is safe and fast.
 
+  -Portable keeps everything else inside the folder too: the download caches of
+  uv, npm and Hugging Face, and the caches Studio's libraries write while it runs
+  (.tools\cache), plus the app window's browser profile (.tools\webview). The
+  install-time caches are emptied when the installer finishes (-KeepCache keeps
+  them for faster reinstalls). The choice is remembered for later re-runs;
+  -Shared switches back to the shared caches in your user profile.
+
 .EXAMPLE
   .\install.bat
   .\install.bat -Models body_pose,body_motion -Yes
   .\install.bat -Torch cpu -NoShortcut
+  .\install.bat -Portable
 #>
 [CmdletBinding()]
 param(
@@ -24,6 +32,12 @@ param(
     # body_pose, hand_pose, body_motion, all, none. Empty = ask.
     [string[]]$Models = @(),
     [switch]$NoShortcut,
+    # Keep every cache inside the install folder (remembered in .tools\portable).
+    [switch]$Portable,
+    # Turn a remembered portable install back to the shared user-profile caches.
+    [switch]$Shared,
+    # Portable only: keep the install-time download caches instead of emptying them.
+    [switch]$KeepCache,
     [switch]$Yes,
     [switch]$Launch
 )
@@ -42,8 +56,10 @@ $PythonW = Join-Path $Venv 'Scripts\pythonw.exe'
 $Web = Join-Path $Root 'studio\web'
 $Static = Join-Path $Root 'studio\gem_studio\static'
 $PythonVersion = '3.12'
+$PortableMarker = Join-Path $Tools 'portable'
+$CacheDir = Join-Path $Tools 'cache'
 $script:Step = 0
-$StepCount = 7
+$StepCount = 8
 
 function Write-Banner {
     Write-Host ''
@@ -101,6 +117,30 @@ Write-Banner
 
 if ([Environment]::OSVersion.Platform -ne 'Win32NT' -or -not [Environment]::Is64BitOperatingSystem) {
     Fail 'This installer requires 64-bit Windows 10 or 11.'
+}
+
+# Portable mode: an explicit -Portable / -Shared wins, then the remembered choice.
+if ($Portable -and $Shared) {
+    Fail 'Use either -Portable or -Shared, not both.'
+} elseif ($Portable -or $Shared) {
+    $usePortable = [bool]$Portable
+} elseif (Test-Path $PortableMarker) {
+    $usePortable = $true
+} else {
+    Write-Host '  Portable install keeps every download cache inside this folder, so nothing'
+    Write-Host '  is stored in your user profile (the installer empties its caches at the end).'
+    $usePortable = (Ask 'Portable install? [y/N]' 'N') -match '^[Yy]'
+}
+if ($usePortable) {
+    New-Item -ItemType Directory -Force $Tools | Out-Null
+    Set-Content -Path $PortableMarker -Value 'Created by install.ps1 -Portable: Studio keeps its caches in .tools\cache.' -Encoding ascii
+    $env:UV_CACHE_DIR = Join-Path $CacheDir 'uv'
+    $env:npm_config_cache = Join-Path $CacheDir 'npm'
+    $env:HF_HOME = Join-Path $CacheDir 'huggingface'
+    $env:HF_XET_CHUNK_CACHE_SIZE_BYTES = '0'
+    Write-Host '  Portable install: caches go to .tools\cache' -ForegroundColor DarkGray
+} elseif (Test-Path $PortableMarker) {
+    Remove-Item $PortableMarker
 }
 
 # 1. uv ----------------------------------------------------------------------
@@ -320,6 +360,26 @@ if ($NoShortcut) {
         $link.Save()
     }
     Write-Ok 'Desktop and Start Menu shortcuts created'
+}
+
+# 8. Cleanup ------------------------------------------------------------------
+Write-Step 'Download caches'
+if (-not $usePortable) {
+    Write-Info 'Shared caches stay in your user profile (re-run with -Portable to keep everything here).'
+} elseif ($KeepCache) {
+    Write-Info 'Kept in .tools\cache (-KeepCache).'
+} else {
+    $installCaches = @('uv', 'npm', 'huggingface') | ForEach-Object { Join-Path $CacheDir $_ } | Where-Object { Test-Path $_ }
+    $bytes = 0
+    foreach ($folder in $installCaches) {
+        $bytes += (Get-ChildItem -Recurse -Force -File $folder -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
+    }
+    # uv's cache can hold read-only files and a lock; let uv empty it.
+    & $uv cache clean 2>$null | Out-Null
+    foreach ($folder in $installCaches) {
+        if (Test-Path $folder) { Remove-Item -Recurse -Force $folder -ErrorAction SilentlyContinue }
+    }
+    Write-Ok ("Freed {0:N1} GB of install-time downloads" -f ($bytes / 1GB))
 }
 
 # WebView2 is built into Windows 11 and current Windows 10; Studio falls back to the browser otherwise.

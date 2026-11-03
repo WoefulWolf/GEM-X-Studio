@@ -157,6 +157,9 @@ export interface SystemInfo {
   machine: string
   repo_root: string
   data_dir: string
+  /** Portable install: library caches live inside the install folder. */
+  portable?: boolean
+  cache_dir?: string | null
   weights_dir: string
   soma_dir: string
   ffmpeg: string | null

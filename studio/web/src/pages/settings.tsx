@@ -167,6 +167,7 @@ export function SettingsPage() {
               ["Models", system.data?.weights_dir],
               ["SOMA assets", system.data?.soma_dir],
               ["Runs & media", system.data?.data_dir],
+              ["Caches", system.data?.portable ? `${system.data.cache_dir} (portable)` : "user profile (shared)"],
               ["Python", `${system.data?.python ?? ""} · ${system.data?.platform ?? ""}`],
             ].map(([label, value]) => (
               <div key={label} className="contents">

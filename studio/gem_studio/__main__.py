@@ -15,7 +15,7 @@ import time
 import webbrowser
 from pathlib import Path
 
-from .paths import JOBS_DIR, MEDIA_FILE_TYPES, PACKAGE_DIR
+from .paths import JOBS_DIR, MEDIA_FILE_TYPES, PACKAGE_DIR, PORTABLE, TOOLS_DIR
 
 
 def _free_port(preferred):
@@ -163,7 +163,10 @@ def main(argv=None):
     )
     api._window = window
     _windows_identity()
-    storage = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "GEM-X Studio" / "webview"
+    if PORTABLE:
+        storage = TOOLS_DIR / "webview"
+    else:
+        storage = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "GEM-X Studio" / "webview"
     webview.start(
         debug=args.debug,
         icon=_window_icon(),

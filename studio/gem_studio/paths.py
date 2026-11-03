@@ -28,6 +28,30 @@ JOBS_DIR = DATA_DIR / "jobs"
 SETTINGS_FILE = DATA_DIR / "settings.json"
 MOTION_CONFIG = REPO_ROOT / "docs" / "configs" / "body_video_native77.yaml"
 
+# Portable install (install.bat -Portable): caches that libraries would otherwise keep
+# in the user profile live in .tools\cache instead, so the folder holds everything.
+TOOLS_DIR = REPO_ROOT / ".tools"
+PORTABLE = (TOOLS_DIR / "portable").is_file()
+CACHE_DIR = TOOLS_DIR / "cache"
+PORTABLE_CACHES = {
+    "HF_HOME": "huggingface",  # Hugging Face hub metadata and the Xet transfer cache
+    "WARP_CACHE_PATH": "warp",  # NVIDIA Warp kernels compiled by SOMA
+    "CUDA_CACHE_PATH": "nvidia",  # CUDA JIT compute cache
+    "TORCH_HOME": "torch",
+    "TRITON_CACHE_DIR": "triton",
+    "MPLCONFIGDIR": "matplotlib",
+    "XDG_CACHE_HOME": ".",
+    "UV_CACHE_DIR": "uv",
+    "npm_config_cache": "npm",
+}
+if PORTABLE:
+    # Set before huggingface_hub, warp or torch are imported; subprocesses inherit them.
+    # Variables the user set explicitly are left alone.
+    for _name, _folder in PORTABLE_CACHES.items():
+        os.environ.setdefault(_name, str(CACHE_DIR / _folder))
+    # Model files go straight to weights/; the Xet chunk cache would only keep a second copy.
+    os.environ.setdefault("HF_XET_CHUNK_CACHE_SIZE_BYTES", "0")
+
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v", ".mpg", ".mpeg", ".wmv"}
 MEDIA_FILE_TYPES = (
