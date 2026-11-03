@@ -14,11 +14,11 @@ import {
   RotateCcw,
   Sparkles,
   Square,
-  type LucideIcon,
 } from "lucide-react"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
 import { toast } from "sonner"
 
+import { ActionList, ActionRow, OptionField, PanelSection } from "@/components/panel-section"
 import { JobProgress, StatusBadge } from "@/components/status"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -440,316 +440,341 @@ function ExportPanel({
     variant === "refined" ? file.name.startsWith("predictions_refined.") : /^predictions\.(pt|json)$/.test(file.name),
   )
 
+  const exported = (files.data ?? []).filter((file) => file.path.startsWith("exports/")).reverse()
+  const ordinal = (value: number) => (value === 2 ? "nd" : value === 3 ? "rd" : "th")
+
   return (
-    <div className="flex flex-col gap-5 pb-4">
+    <div className="flex flex-col gap-3 pb-4">
       {variant === "refined" && (
         <div className="flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/[0.06] px-3 py-2 text-xs">
           <Sparkles className="size-3.5 text-primary" /> Exporting the refined result (see the Refine tab)
         </div>
       )}
       {isVideo && (
-        <Section title="Animation">
-          <div className="grid grid-cols-2 gap-2 rounded-lg border bg-card p-3">
-            <div className="col-span-2 flex flex-col gap-1.5">
-              <Label className="text-[11px] text-muted-foreground">Format</Label>
+        <PanelSection
+          id="export-animation"
+          title="Animation"
+          summary={[
+            format === "skeleton" ? "Skeleton" : "Shape keys",
+            format === "skeleton" && (naming === "mmd" ? "MMD names" : "Standard names"),
+            hasWorld && (space === "world" ? "World" : "Camera"),
+            step !== "1" && `every ${step}${ordinal(Number(step))}`,
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+        >
+          <OptionField
+            label="Format"
+            hint={
+              format === "skeleton"
+                ? "Animated armature + skinned body. Small, retargetable; skinning differs from GEM's surface by ~3 mm."
+                : isMotion
+                  ? "Every frame's exact mesh (keeps pose correctives). Large; no bones."
+                  : "Every frame's exact mesh. Skeletons are available for Body Motion runs."
+            }
+          >
+            <ToggleGroup
+              type="single"
+              variant="outline"
+              size="sm"
+              value={format}
+              onValueChange={(value) => value && setFormat(value as "skeleton" | "shapes")}
+              className="w-full"
+            >
+              <ToggleGroupItem value="skeleton" className="flex-1" disabled={!isMotion}>
+                Skeleton (skinned)
+              </ToggleGroupItem>
+              <ToggleGroupItem value="shapes" className="flex-1">
+                Shape keys
+              </ToggleGroupItem>
+            </ToggleGroup>
+          </OptionField>
+          {format === "skeleton" && (
+            <OptionField
+              label="Bone names"
+              hint={
+                naming === "mmd"
+                  ? "センター, 上半身, 左腕, 左ひざ… (MMD standard bones)"
+                  : "Hips, Spine1, LeftArm, LeftShin… (SOMA joints)"
+              }
+            >
               <ToggleGroup
                 type="single"
                 variant="outline"
                 size="sm"
-                value={format}
-                onValueChange={(value) => value && setFormat(value as "skeleton" | "shapes")}
+                value={naming}
+                onValueChange={(value) => value && setNaming(value as "soma" | "mmd")}
                 className="w-full"
               >
-                <ToggleGroupItem value="skeleton" className="flex-1" disabled={!isMotion}>
-                  Skeleton (skinned)
+                <ToggleGroupItem value="soma" className="flex-1">
+                  Standard
                 </ToggleGroupItem>
-                <ToggleGroupItem value="shapes" className="flex-1">
-                  Shape keys
+                <ToggleGroupItem value="mmd" className="flex-1">
+                  MMD
                 </ToggleGroupItem>
               </ToggleGroup>
-              <p className="text-[11px] text-muted-foreground">
-                {format === "skeleton"
-                  ? "Animated armature + skinned body. Small, retargetable; skinning differs from GEM's surface by ~3 mm."
-                  : isMotion
-                    ? "Every frame's exact mesh (keeps pose correctives). Large; no bones."
-                    : "Every frame's exact mesh. Skeletons are available for Body Motion runs."}
-              </p>
-            </div>
-            {format === "skeleton" && (
-              <div className="col-span-2 flex flex-col gap-1.5">
-                <Label className="text-[11px] text-muted-foreground">Bone names</Label>
-                <ToggleGroup
-                  type="single"
-                  variant="outline"
-                  size="sm"
-                  value={naming}
-                  onValueChange={(value) => value && setNaming(value as "soma" | "mmd")}
-                  className="w-full"
-                >
-                  <ToggleGroupItem value="soma" className="flex-1">
-                    Standard
-                  </ToggleGroupItem>
-                  <ToggleGroupItem value="mmd" className="flex-1">
-                    MMD
-                  </ToggleGroupItem>
-                </ToggleGroup>
-                <p className="text-[11px] text-muted-foreground">
-                  {naming === "mmd" ? "センター, 上半身, 左腕, 左ひざ… (MMD standard bones)" : "Hips, Spine1, LeftArm, LeftShin… (SOMA joints)"}
-                </p>
-              </div>
-            )}
-            {hasWorld && (
-              <div className="col-span-2 flex flex-col gap-1.5">
-                <Label className="text-[11px] text-muted-foreground">Space</Label>
-                <ToggleGroup
-                  type="single"
-                  variant="outline"
-                  size="sm"
-                  value={space}
-                  onValueChange={(value) => value && setSpace(value as "world" | "camera")}
-                  className="w-full"
-                >
-                  <ToggleGroupItem value="world" className="flex-1">
-                    World (moves)
-                  </ToggleGroupItem>
-                  <ToggleGroupItem value="camera" className="flex-1">
-                    Camera
-                  </ToggleGroupItem>
-                </ToggleGroup>
-              </div>
-            )}
-            <div className="col-span-2 flex flex-col gap-1.5">
-              <Label className="text-[11px] text-muted-foreground">Frame rate</Label>
-              <Select value={step} onValueChange={setStep}>
-                <SelectTrigger size="sm" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {[1, 2, 3, 4].map((value) => (
-                    <SelectItem key={value} value={String(value)}>
-                      {value === 1 ? "Every frame" : `Every ${value}${value === 2 ? "nd" : value === 3 ? "rd" : "th"} frame`} ·{" "}
-                      {Number((fps / value).toFixed(1))} fps
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <p className="col-span-2 text-[11px] text-muted-foreground">
-              {sampled} keyframes · {format === "skeleton" ? "77 joints" : `${tracks.size} track${tracks.size === 1 ? "" : "s"}`} · ≈{" "}
-              {formatBytes(estimate)}
-            </p>
-          </div>
-          <ExportRow
-            icon={Film}
-            title="glTF animation (.glb)"
-            hint={
-              format === "skeleton"
-                ? "Skinned skeleton · Blender, Unity, Unreal, three.js · no Blender needed"
-                : "Shape-key animation · Blender, Unity, Unreal, three.js"
-            }
-            busy={busy === "gltf_animation" || busy === "gltf_skeleton"}
-            onClick={() => serverExport(format === "skeleton" ? "gltf_skeleton" : "gltf_animation")}
-          />
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div>
-                <ExportRow
-                  icon={Film}
-                  title="FBX animation"
-                  hint={
-                    !blender
-                      ? "Needs Blender (set path in Settings)"
-                      : format === "skeleton"
-                        ? "Armature + skin · Maya, Max, Unity, Unreal"
-                        : "Blend-shape animation · Maya, Max, Unity, Unreal"
-                  }
-                  busy={busy === "fbx"}
-                  disabled={!blender}
-                  onClick={() => serverExport("fbx")}
-                />
-              </div>
-            </TooltipTrigger>
-            <TooltipContent className="max-w-64">
-              {blender
-                ? `Converted by Blender: ${blender}`
-                : "FBX is written by a local Blender install (free). Install Blender, or set blender.exe in Settings."}
-            </TooltipContent>
-          </Tooltip>
-          <ExportRow
-            icon={Layers}
-            title="Point cache (OBJ + PC2)"
-            hint="Every frame, all tracks · Mesh Cache modifier"
-            busy={busy === "point_cache"}
-            onClick={() => serverExport("point_cache")}
-          />
-          <ExportRow
-            icon={FileArchive}
-            title="OBJ sequence (zip)"
-            hint="One OBJ per frame and track"
-            busy={busy === "obj_sequence"}
-            onClick={() => serverExport("obj_sequence")}
-          />
-        </Section>
+            </OptionField>
+          )}
+          {hasWorld && (
+            <OptionField label="Space">
+              <ToggleGroup
+                type="single"
+                variant="outline"
+                size="sm"
+                value={space}
+                onValueChange={(value) => value && setSpace(value as "world" | "camera")}
+                className="w-full"
+              >
+                <ToggleGroupItem value="world" className="flex-1">
+                  World (moves)
+                </ToggleGroupItem>
+                <ToggleGroupItem value="camera" className="flex-1">
+                  Camera
+                </ToggleGroupItem>
+              </ToggleGroup>
+            </OptionField>
+          )}
+          <OptionField
+            label="Frame rate"
+            hint={`${sampled} keyframes · ${
+              format === "skeleton" ? "77 joints" : `${tracks.size} track${tracks.size === 1 ? "" : "s"}`
+            } · ≈ ${formatBytes(estimate)}`}
+          >
+            <Select value={step} onValueChange={setStep}>
+              <SelectTrigger size="sm" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {[1, 2, 3, 4].map((value) => (
+                  <SelectItem key={value} value={String(value)}>
+                    {value === 1 ? "Every frame" : `Every ${value}${ordinal(value)} frame`} ·{" "}
+                    {Number((fps / value).toFixed(1))} fps
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </OptionField>
+          <ActionList>
+            <ActionRow
+              icon={Film}
+              title="glTF animation (.glb)"
+              hint={
+                format === "skeleton"
+                  ? "Skinned skeleton · Blender, Unity, Unreal, three.js · no Blender needed"
+                  : "Shape-key animation · Blender, Unity, Unreal, three.js"
+              }
+              busy={busy === "gltf_animation" || busy === "gltf_skeleton"}
+              onClick={() => serverExport(format === "skeleton" ? "gltf_skeleton" : "gltf_animation")}
+            />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div>
+                  <ActionRow
+                    icon={Film}
+                    title="FBX animation"
+                    hint={
+                      !blender
+                        ? "Needs Blender (set path in Settings)"
+                        : format === "skeleton"
+                          ? "Armature + skin · Maya, Max, Unity, Unreal"
+                          : "Blend-shape animation · Maya, Max, Unity, Unreal"
+                    }
+                    busy={busy === "fbx"}
+                    disabled={!blender}
+                    onClick={() => serverExport("fbx")}
+                  />
+                </div>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-64">
+                {blender
+                  ? `Converted by Blender: ${blender}`
+                  : "FBX is written by a local Blender install (free). Install Blender, or set blender.exe in Settings."}
+              </TooltipContent>
+            </Tooltip>
+            <ActionRow
+              icon={Layers}
+              title="Point cache (OBJ + PC2)"
+              hint="Every frame, all tracks · Mesh Cache modifier"
+              busy={busy === "point_cache"}
+              onClick={() => serverExport("point_cache")}
+            />
+            <ActionRow
+              icon={FileArchive}
+              title="OBJ sequence (zip)"
+              hint="One OBJ per frame and track"
+              busy={busy === "obj_sequence"}
+              onClick={() => serverExport("obj_sequence")}
+            />
+          </ActionList>
+        </PanelSection>
       )}
 
       {isVideo && isMotion && (
-        <Section title="MMD (MikuMikuDance)">
-          <div className="flex flex-col gap-3 rounded-lg border bg-card p-3">
-            <p className="text-[11px] leading-relaxed text-muted-foreground">
-              VMD motion for any MMD model, matched by standard bone names (センター, 上半身, 左腕, 左足…, fingers). Leg
-              IK is switched off so the legs follow the capture exactly.
-            </p>
-            <div className="flex flex-col gap-1.5">
-              <div className="flex items-center justify-between">
-                <Label className="text-[11px] text-muted-foreground">Model arm angle (A-pose)</Label>
-                <span className="text-[11px] text-muted-foreground tabular-nums">{armAngle}°</span>
-              </div>
-              <Slider min={0} max={50} step={1} value={[armAngle]} onValueChange={([value]) => setArmAngle(value)} />
-              <p className="text-[11px] text-muted-foreground">
-                How far your model&apos;s arms point down at rest. Most MMD models: 30–40°; T-pose models: 0°.
-              </p>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label className="text-[11px] text-muted-foreground">Scale</Label>
-              <Select value={mmdScale} onValueChange={setMmdScale}>
-                <SelectTrigger size="sm" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="12.5">Standard · 1 unit = 8 cm</SelectItem>
-                  <SelectItem value="10">Smaller model · 1 unit = 10 cm</SelectItem>
-                  <SelectItem value="15">Larger model · 1 unit ≈ 6.7 cm</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <label className="flex cursor-pointer items-center justify-between gap-3">
-              <span className="text-[13px]">Face the camera at the start</span>
-              <Switch checked={faceForward} onCheckedChange={setFaceForward} />
-            </label>
-          </div>
-          <ExportRow
-            icon={Film}
-            title="VMD motion (.vmd)"
-            hint="MikuMikuDance, MMM, Blender mmd_tools · 30 fps"
-            busy={busy === "vmd"}
+        <PanelSection
+          id="export-mmd"
+          title="MMD (MikuMikuDance)"
+          summary={`${armAngle}° arms · ${mmdScale === "12.5" ? "standard scale" : `scale ${mmdScale}`}`}
+        >
+          <p className="text-[11px] leading-relaxed text-muted-foreground">
+            VMD motion for any MMD model, matched by standard bone names (センター, 上半身, 左腕, 左足…, fingers). Leg IK is
+            switched off so the legs follow the capture exactly. The skeleton glTF/FBX above can also use MMD bone
+            names.
+          </p>
+          <RangeField
+            label="Model arm angle (A-pose)"
+            value={armAngle}
+            display={`${armAngle}°`}
+            min={0}
+            max={50}
+            step={1}
+            left="T-pose (0°)"
+            right="Most MMD models: 30–40°"
+            onChange={setArmAngle}
+          />
+          <OptionField label="Scale">
+            <Select value={mmdScale} onValueChange={setMmdScale}>
+              <SelectTrigger size="sm" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="12.5">Standard · 1 unit = 8 cm</SelectItem>
+                <SelectItem value="10">Smaller model · 1 unit = 10 cm</SelectItem>
+                <SelectItem value="15">Larger model · 1 unit ≈ 6.7 cm</SelectItem>
+              </SelectContent>
+            </Select>
+          </OptionField>
+          <SwitchField
+            label="Face the camera at the start"
+            checked={faceForward}
+            onChange={setFaceForward}
+          />
+          <ActionList>
+            <ActionRow
+              icon={Film}
+              title="VMD motion (.vmd)"
+              hint="MikuMikuDance, MMM, Blender mmd_tools · 30 fps"
+              busy={busy === "vmd"}
+              onClick={() =>
+                serverExport("vmd", { arm_angle_deg: armAngle, scale: Number(mmdScale), face_forward: faceForward })
+              }
+            />
+          </ActionList>
+        </PanelSection>
+      )}
+
+      <PanelSection id="export-frame" title="Current frame" summary="GLB · OBJ · PNG">
+        <ActionList>
+          <ActionRow
+            icon={Box}
+            title="Mesh · GLB"
+            hint="Blender, Unity, Unreal, web"
+            busy={busy === "glb"}
             onClick={() =>
-              serverExport("vmd", {
-                arm_angle_deg: armAngle,
-                scale: Number(mmdScale),
-                face_forward: faceForward,
-              })
+              clientExport("glb", () => `${stem}${frameSuffix()}.glb`, () => viewer.current!.exportFrame("glb"))
             }
           />
-          <p className="text-[11px] text-muted-foreground">
-            For a model you will import elsewhere, the skeleton glTF/FBX above can also use MMD bone names.
-          </p>
-        </Section>
-      )}
-
-      <Section title="Current frame">
-        <ExportRow
-          icon={Box}
-          title="Mesh · GLB"
-          hint="Blender, Unity, Unreal, web"
-          busy={busy === "glb"}
-          onClick={() =>
-            clientExport("glb", () => `${stem}${frameSuffix()}.glb`, () => viewer.current!.exportFrame("glb"))
-          }
-        />
-        <ExportRow
-          icon={Box}
-          title="Mesh · OBJ"
-          busy={busy === "obj"}
-          onClick={() =>
-            clientExport("obj", () => `${stem}${frameSuffix()}.obj`, () => viewer.current!.exportFrame("obj"))
-          }
-        />
-        <ExportRow
-          icon={Camera}
-          title="Screenshot (PNG)"
-          hint="Current view at full resolution"
-          busy={busy === "png"}
-          onClick={() =>
-            clientExport("png", () => `${stem}${frameSuffix()}_${viewer.current!.view()}.png`, () =>
-              viewer.current!.screenshot(),
-            )
-          }
-        />
-      </Section>
+          <ActionRow
+            icon={Box}
+            title="Mesh · OBJ"
+            busy={busy === "obj"}
+            onClick={() =>
+              clientExport("obj", () => `${stem}${frameSuffix()}.obj`, () => viewer.current!.exportFrame("obj"))
+            }
+          />
+          <ActionRow
+            icon={Camera}
+            title="Screenshot (PNG)"
+            hint="Current view at full resolution"
+            busy={busy === "png"}
+            onClick={() =>
+              clientExport("png", () => `${stem}${frameSuffix()}_${viewer.current!.view()}.png`, () =>
+                viewer.current!.screenshot(),
+              )
+            }
+          />
+        </ActionList>
+      </PanelSection>
 
       {isVideo && (
-        <Section title="Video">
-          <div className="rounded-lg border bg-card p-3">
-            <div className="flex items-center gap-3">
-              <Clapperboard className="size-4 shrink-0 text-muted-foreground" />
-              <div className="min-w-0 flex-1">
-                <div className="text-[13px] font-medium">Render video (MP4)</div>
-                <div className="text-[11px] text-muted-foreground">Exactly what the viewer shows, frame by frame</div>
-              </div>
-              {renderProgress == null ? (
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  disabled={busy != null}
-                  onClick={() => {
-                    const controller = new AbortController()
-                    abort.current = controller
-                    setRenderProgress(0)
-                    const view = viewer.current!.view()
-                    void run("video", async () => {
-                      const name = `${stem}_${view}.mp4`
-                      await viewer.current!.renderVideo(name, setRenderProgress, controller.signal)
-                      const list = await api.files(job.id)
-                      return list.find((file) => file.name === name)
-                    }).finally(() => setRenderProgress(null))
-                  }}
-                >
-                  Render
-                </Button>
-              ) : (
-                <Button size="sm" variant="outline" onClick={() => abort.current?.abort()}>
-                  Stop
-                </Button>
+        <PanelSection id="export-video" title="Video" summary="MP4 render">
+          <ActionList>
+            <ActionRow
+              icon={Clapperboard}
+              title="Render video (MP4)"
+              hint="Exactly what the viewer shows, frame by frame"
+              onClick={() => undefined}
+              control={
+                renderProgress == null ? (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={busy != null}
+                    onClick={() => {
+                      const controller = new AbortController()
+                      abort.current = controller
+                      setRenderProgress(0)
+                      const view = viewer.current!.view()
+                      void run("video", async () => {
+                        const name = `${stem}_${view}.mp4`
+                        await viewer.current!.renderVideo(name, setRenderProgress, controller.signal)
+                        const list = await api.files(job.id)
+                        return list.find((file) => file.name === name)
+                      }).finally(() => setRenderProgress(null))
+                    }}
+                  >
+                    Render
+                  </Button>
+                ) : (
+                  <Button size="sm" variant="outline" onClick={() => abort.current?.abort()}>
+                    Stop
+                  </Button>
+                )
+              }
+            >
+              {renderProgress != null && (
+                <div className="flex items-center gap-2">
+                  <Progress value={renderProgress * 100} className="h-1.5" />
+                  <span className="w-9 text-right text-[11px] text-muted-foreground tabular-nums">
+                    {Math.round(renderProgress * 100)}%
+                  </span>
+                </div>
               )}
-            </div>
-            {renderProgress != null && (
-              <div className="mt-2.5 flex items-center gap-2">
-                <Progress value={renderProgress * 100} className="h-1.5" />
-                <span className="w-9 text-right text-[11px] text-muted-foreground tabular-nums">
-                  {Math.round(renderProgress * 100)}%
-                </span>
-              </div>
-            )}
-          </div>
-        </Section>
+            </ActionRow>
+          </ActionList>
+        </PanelSection>
       )}
 
-      <Section title="Data">
-        {predictionFiles.map((file) => (
-          <ExportRow
-            key={file.name}
-            icon={file.name.endsWith(".json") ? FileJson : Layers}
-            title={file.name.endsWith(".json") ? "Parameters & keypoints (JSON)" : "Full GEM result (.pt)"}
-            hint={formatBytes(file.size)}
-            action="Save"
-            onClick={() => deliver(job.id, file)}
+      <PanelSection id="export-data" title="Data" summary="Predictions · NumPy" defaultOpen={false}>
+        <ActionList>
+          {predictionFiles.map((file) => (
+            <ActionRow
+              key={file.name}
+              icon={file.name.endsWith(".json") ? FileJson : Layers}
+              title={file.name.endsWith(".json") ? "Parameters & keypoints (JSON)" : "Full GEM result (.pt)"}
+              hint={formatBytes(file.size)}
+              action="Save"
+              onClick={() => deliver(job.id, file)}
+            />
+          ))}
+          <ActionRow
+            icon={FileArchive}
+            title="NumPy arrays (.npz)"
+            hint="Vertices, faces, frame mapping"
+            busy={busy === "npz"}
+            onClick={() => serverExport("npz")}
           />
-        ))}
-        <ExportRow
-          icon={FileArchive}
-          title="NumPy arrays (.npz)"
-          hint="Vertices, faces, frame mapping"
-          busy={busy === "npz"}
-          onClick={() => serverExport("npz")}
-        />
-      </Section>
+        </ActionList>
+      </PanelSection>
 
-      {(files.data ?? []).some((file) => file.path.startsWith("exports/")) && (
-        <Section title="Exported files">
-          {(files.data ?? [])
-            .filter((file) => file.path.startsWith("exports/"))
-            .reverse()
-            .map((file) => (
+      {exported.length > 0 && (
+        <PanelSection
+          id="export-files"
+          title="Exported files"
+          summary={`${exported.length} file${exported.length === 1 ? "" : "s"}`}
+          defaultOpen={false}
+        >
+          <div className="-mx-2 -my-2 flex flex-col">
+            {exported.map((file) => (
               <button
                 key={file.path}
                 onClick={() => deliver(job.id, file)}
@@ -760,7 +785,8 @@ function ExportPanel({
                 <span className="text-muted-foreground tabular-nums">{formatBytes(file.size)}</span>
               </button>
             ))}
-        </Section>
+          </div>
+        </PanelSection>
       )}
     </div>
   )
@@ -803,6 +829,8 @@ const MOTION_DEFAULTS: RefineOptions = {
   roll_deg: 0,
 }
 
+const signed = (value: number, unit: string) => `${value > 0 ? "+" : ""}${value.toFixed(1)}${unit}`
+
 function MotionRefinePanel({ job, onRefined }: { job: Job; onRefined: () => void }) {
   useRefineCompletion(job, onRefined)
   const current = job.refine
@@ -817,10 +845,17 @@ function MotionRefinePanel({ job, onRefined }: { job: Job; onRefined: () => void
   const report = current?.status === "done" ? current.report : null
   const plant = report?.plant_feet
   const sensitivity = 1 - (options.contact_threshold ?? 0.5)
+  const tilt = options.tilt_deg ?? 0
+  const roll = options.roll_deg ?? 0
+  const offset = options.floor_offset_cm ?? 0
 
   return (
-    <div className="flex flex-col gap-4 pb-4">
-      <RefineCard title="World trajectory">
+    <div className="flex flex-col gap-3 pb-4">
+      <PanelSection
+        id="refine-world"
+        title="World trajectory"
+        summary={options.world === "anchor" ? "Anchored to camera" : "GEM world"}
+      >
         <ToggleGroup
           type="single"
           variant="outline"
@@ -846,25 +881,29 @@ function MotionRefinePanel({ job, onRefined }: { job: Job; onRefined: () => void
             </span>
           )}
         </p>
-      </RefineCard>
+      </PanelSection>
 
-      <RefineCard title="Level & tilt">
-        <label className="flex cursor-pointer items-center justify-between gap-3">
-          <div>
-            <div className="text-[13px] font-medium">Auto-level on the floor</div>
-            <div className="text-[11px] text-muted-foreground">
-              Fixes a camera tilted up or down: the planted feet define the floor
-            </div>
-          </div>
-          <Switch
-            checked={options.level !== "off"}
-            onCheckedChange={(on) => set({ level: on ? "auto" : "off" })}
-          />
-        </label>
+      <PanelSection
+        id="refine-level"
+        title="Level & tilt"
+        summary={[
+          options.level === "off" ? "Auto-level off" : "Auto-level",
+          tilt && `lean ${signed(tilt, "°")}`,
+          roll && `sideways ${signed(roll, "°")}`,
+        ]
+          .filter(Boolean)
+          .join(" · ")}
+      >
+        <SwitchField
+          label="Auto-level on the floor"
+          hint="Fixes a camera tilted up or down: the planted feet define the floor"
+          checked={options.level !== "off"}
+          onChange={(on) => set({ level: on ? "auto" : "off" })}
+        />
         <RangeField
           label="Lean toward / away from camera"
-          value={options.tilt_deg ?? 0}
-          display={`${(options.tilt_deg ?? 0) > 0 ? "+" : ""}${(options.tilt_deg ?? 0).toFixed(1)}°`}
+          value={tilt}
+          display={signed(tilt, "°")}
           min={-15}
           max={15}
           step={0.5}
@@ -874,8 +913,8 @@ function MotionRefinePanel({ job, onRefined }: { job: Job; onRefined: () => void
         />
         <RangeField
           label="Sideways lean"
-          value={options.roll_deg ?? 0}
-          display={`${(options.roll_deg ?? 0) > 0 ? "+" : ""}${(options.roll_deg ?? 0).toFixed(1)}°`}
+          value={roll}
+          display={signed(roll, "°")}
           min={-15}
           max={15}
           step={0.5}
@@ -886,16 +925,24 @@ function MotionRefinePanel({ job, onRefined }: { job: Job; onRefined: () => void
         <p className="text-[11px] leading-relaxed text-muted-foreground">
           Manual lean is added on top of auto-level. Check it from the side in the World view.
         </p>
-      </RefineCard>
+      </PanelSection>
 
-      <RefineCard title="Feet & floor">
-        <label className="flex cursor-pointer items-center justify-between gap-3">
-          <div>
-            <div className="text-[13px] font-medium">Plant feet flat on the floor</div>
-            <div className="text-[11px] text-muted-foreground">Hip height + leg IK on predicted foot contacts</div>
-          </div>
-          <Switch checked={!!options.plant_feet} onCheckedChange={(plant_feet) => set({ plant_feet })} />
-        </label>
+      <PanelSection
+        id="refine-feet"
+        title="Feet & floor"
+        summary={[
+          options.plant_feet ? `Planted · ${Math.round(sensitivity * 100)}%` : "Not planted",
+          offset && `floor ${signed(offset, " cm")}`,
+        ]
+          .filter(Boolean)
+          .join(" · ")}
+      >
+        <SwitchField
+          label="Plant feet flat on the floor"
+          hint="Hip height + leg IK on predicted foot contacts"
+          checked={!!options.plant_feet}
+          onChange={(plant_feet) => set({ plant_feet })}
+        />
         <RangeField
           label="Contact sensitivity"
           value={sensitivity}
@@ -910,8 +957,8 @@ function MotionRefinePanel({ job, onRefined }: { job: Job; onRefined: () => void
         />
         <RangeField
           label="Floor offset"
-          value={options.floor_offset_cm ?? 0}
-          display={`${(options.floor_offset_cm ?? 0) > 0 ? "+" : ""}${(options.floor_offset_cm ?? 0).toFixed(1)} cm`}
+          value={offset}
+          display={signed(offset, " cm")}
           min={-5}
           max={5}
           step={0.5}
@@ -919,9 +966,13 @@ function MotionRefinePanel({ job, onRefined }: { job: Job; onRefined: () => void
           right="Raise"
           onChange={(floor_offset_cm) => set({ floor_offset_cm })}
         />
-      </RefineCard>
+      </PanelSection>
 
-      <RefineCard title="Smoothing">
+      <PanelSection
+        id="refine-smoothing"
+        title="Smoothing"
+        summary={options.strength ? `${options.strength.toFixed(1)} frames · ${DETAIL_LABELS[options.detail]}` : "Off"}
+      >
         <RangeField
           label="Strength"
           value={options.strength}
@@ -933,58 +984,23 @@ function MotionRefinePanel({ job, onRefined }: { job: Job; onRefined: () => void
           right="Strong"
           onChange={(strength) => set({ strength })}
         />
-        <div className={cn("flex flex-col gap-2", !options.strength && "pointer-events-none opacity-50")}>
-          <Label className="text-[13px]">Fast motion</Label>
-          <ToggleGroup
-            type="single"
-            variant="outline"
-            size="sm"
-            value={options.detail}
-            onValueChange={(detail) => detail && set({ detail: detail as RefineOptions["detail"] })}
-            className="w-full"
-          >
-            {(Object.keys(DETAIL_LABELS) as RefineOptions["detail"][]).map((value) => (
-              <ToggleGroupItem key={value} value={value} className="flex-1">
-                {DETAIL_LABELS[value]}
-              </ToggleGroupItem>
-            ))}
-          </ToggleGroup>
+        <div className={cn(!options.strength && "pointer-events-none opacity-50")}>
+          <DetailField value={options.detail} onChange={(detail) => set({ detail })} />
         </div>
         <p className="text-[11px] text-muted-foreground">
           Body Motion is already temporally modelled, so smoothing starts off. Add a little for noisy clips.
         </p>
-      </RefineCard>
+      </PanelSection>
 
-      <div className="flex flex-col gap-3">
-        <div className="flex gap-2">
-          <Button
-            className="flex-1"
-            disabled={active}
-            onClick={async () => {
-              try {
-                await api.refine(job.id, options)
-              } catch (error) {
-                toast.error("Could not start", { description: (error as Error).message })
-              }
-            }}
-          >
-            {active ? <Loader2 className="animate-spin" /> : <Sparkles />}
-            {active ? "Refining…" : current?.status === "done" ? "Apply again" : "Apply"}
-          </Button>
-          <Button
-            variant="outline"
-            disabled={active}
-            onClick={() => setOptions({ ...MOTION_DEFAULTS, world: fixedCamera ? "anchor" : "gem" })}
-          >
-            Defaults
-          </Button>
-        </div>
-        {active && current && (
-          <JobProgress job={{ ...job, stage: current.stage, detail: current.detail ?? null, progress: current.progress }} />
-        )}
+      <ApplyBar
+        job={job}
+        active={active}
+        label={current?.status === "done" ? "Apply again" : "Apply"}
+        onApply={() => api.refine(job.id, options)}
+        onDefaults={() => setOptions({ ...MOTION_DEFAULTS, world: fixedCamera ? "anchor" : "gem" })}
+      >
         {report && (
-          <div className="rounded-lg border bg-card p-3 text-[11px] leading-relaxed text-muted-foreground">
-            <div className="mb-1 font-medium text-foreground">Last result</div>
+          <>
             {report.mode === "anchored_to_fixed_camera" ? "Anchored to the camera" : "GEM world"}
             {report.level?.applied_deg != null &&
               ` · levelled ${report.level.applied_deg}° (${Math.abs(report.level.toward_camera_deg ?? 0).toFixed(1)}° ${
@@ -1001,19 +1017,91 @@ function MotionRefinePanel({ job, onRefined }: { job: Job; onRefined: () => void
                 planted in {Math.round(plant.planted_frame_fraction * 100)}% of frames
               </>
             )}
-          </div>
+          </>
         )}
-      </div>
+      </ApplyBar>
     </div>
   )
 }
 
-function RefineCard({ title, children }: { title: string; children: React.ReactNode }) {
+/** Apply (+ optional Defaults) with progress and a "last result" note; shared by both Refine panels. */
+function ApplyBar(props: {
+  job: Job
+  active: boolean
+  label: string
+  onApply: () => Promise<unknown>
+  onDefaults?: () => void
+  children?: ReactNode
+}) {
+  const current = props.job.refine
   return (
-    <div className="flex flex-col gap-4 rounded-lg border bg-card p-4">
-      <h3 className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">{title}</h3>
-      {children}
+    <div className="flex flex-col gap-3">
+      <div className="flex gap-2">
+        <Button
+          className="flex-1"
+          disabled={props.active}
+          onClick={async () => {
+            try {
+              await props.onApply()
+            } catch (error) {
+              toast.error("Could not start", { description: (error as Error).message })
+            }
+          }}
+        >
+          {props.active ? <Loader2 className="animate-spin" /> : <Sparkles />}
+          {props.active ? "Refining…" : props.label}
+        </Button>
+        {props.onDefaults && (
+          <Button variant="outline" disabled={props.active} onClick={props.onDefaults}>
+            Defaults
+          </Button>
+        )}
+      </div>
+      {props.active && current && (
+        <JobProgress
+          job={{ ...props.job, stage: current.stage, detail: current.detail ?? null, progress: current.progress }}
+        />
+      )}
+      {props.children && !props.active && (
+        <div className="rounded-lg border bg-card p-3 text-[11px] leading-relaxed text-muted-foreground">
+          <div className="mb-1 font-medium text-foreground">Last result</div>
+          {props.children}
+        </div>
+      )}
     </div>
+  )
+}
+
+function SwitchField(props: { label: string; hint?: string; checked: boolean; onChange: (value: boolean) => void }) {
+  return (
+    <label className="flex cursor-pointer items-center justify-between gap-3">
+      <div>
+        <div className="text-[13px] font-medium">{props.label}</div>
+        {props.hint && <div className="text-[11px] text-muted-foreground">{props.hint}</div>}
+      </div>
+      <Switch checked={props.checked} onCheckedChange={props.onChange} />
+    </label>
+  )
+}
+
+function DetailField(props: { value: RefineOptions["detail"]; onChange: (value: RefineOptions["detail"]) => void }) {
+  return (
+    <OptionField label="Fast motion" hint="Sharper keeps quick gestures crisp; Smoother also calms fast movement.">
+      <ToggleGroup
+        type="single"
+        variant="outline"
+        size="sm"
+        value={props.value}
+        onValueChange={(detail) => detail && props.onChange(detail as RefineOptions["detail"])}
+        className="w-full"
+      >
+        {(Object.keys(DETAIL_LABELS) as RefineOptions["detail"][]).map((value) => (
+          <ToggleGroupItem key={value} value={value} className="flex-1">
+            {DETAIL_LABELS[value]}
+          </ToggleGroupItem>
+        ))}
+      </ToggleGroup>
+    </OptionField>
   )
 }
 
@@ -1057,134 +1145,54 @@ function RefinePanel({ job, onRefined }: { job: Job; onRefined: () => void }) {
   )
   const active = current?.status === "running" || current?.status === "queued"
   useRefineCompletion(job, onRefined)
-
   const subject = job.task === "hand" ? "hand" : "body"
-  return (
-    <div className="flex flex-col gap-4 pb-4">
-      <div className="rounded-lg border bg-card p-4">
-        <div className="mb-1 flex items-center gap-2 text-sm font-medium">
-          <Sparkles className="size-4 text-primary" /> Temporal smoothing
-        </div>
-        <p className="text-xs leading-relaxed text-muted-foreground">
-          Runs GEM's motion-adaptive filter over the predicted rotations, position and {subject} shape, then rebuilds
-          the meshes. It removes frame-to-frame jitter and backs off during fast movement. The raw result is kept;
-          switch between them in the viewer.
-        </p>
-      </div>
 
-      <div className="flex flex-col gap-5 rounded-lg border bg-card p-4">
-        <div className="flex flex-col gap-2">
-          <div className="flex items-center justify-between">
-            <Label className="text-[13px]">Strength</Label>
-            <span className="text-xs text-muted-foreground tabular-nums">
-              {options.strength.toFixed(1)} frame{options.strength === 1 ? "" : "s"}
-            </span>
-          </div>
-          <Slider
-            min={0.5}
-            max={8}
-            step={0.5}
-            value={[options.strength]}
-            onValueChange={([strength]) => setOptions({ ...options, strength })}
-          />
-          <div className="flex justify-between text-[11px] text-muted-foreground">
-            <span>Light</span>
-            <span>GEM default: 2</span>
-            <span>Strong</span>
-          </div>
-        </div>
-        <div className="flex flex-col gap-2">
-          <Label className="text-[13px]">Fast motion</Label>
-          <ToggleGroup
-            type="single"
-            variant="outline"
-            size="sm"
-            value={options.detail}
-            onValueChange={(detail) => detail && setOptions({ ...options, detail: detail as RefineOptions["detail"] })}
-            className="w-full"
-          >
-            {(Object.keys(DETAIL_LABELS) as RefineOptions["detail"][]).map((value) => (
-              <ToggleGroupItem key={value} value={value} className="flex-1">
-                {DETAIL_LABELS[value]}
-              </ToggleGroupItem>
-            ))}
-          </ToggleGroup>
-          <p className="text-[11px] text-muted-foreground">
-            Sharper keeps quick gestures crisp; Smoother also calms fast movement.
-          </p>
-        </div>
-        <label className="flex cursor-pointer items-center justify-between gap-3">
-          <div>
-            <div className="text-[13px] font-medium">Lock {subject} shape</div>
-            <div className="text-[11px] text-muted-foreground">Same proportions for the whole clip</div>
-          </div>
-          <Switch
-            checked={options.lock_shape}
-            onCheckedChange={(lock_shape) => setOptions({ ...options, lock_shape })}
-          />
-        </label>
-        <Button
-          disabled={active}
-          onClick={async () => {
-            try {
-              await api.refine(job.id, options)
-            } catch (error) {
-              toast.error("Could not start refinement", { description: (error as Error).message })
-            }
-          }}
-        >
-          {active ? <Loader2 className="animate-spin" /> : <Sparkles />}
-          {active ? "Refining…" : current?.status === "done" ? "Apply again" : "Apply smoothing"}
-        </Button>
-        {active && current && (
-          <JobProgress job={{ ...job, stage: current.stage, detail: current.detail ?? null, progress: current.progress }} />
-        )}
-        {current?.status === "done" && !active && (
-          <p className="text-[11px] text-muted-foreground">
-            Last applied: strength {current.options.strength}, {DETAIL_LABELS[current.options.detail].toLowerCase()}
-            {current.options.lock_shape ? ", shape locked" : ""}.
-          </p>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="flex flex-col gap-2">
-      <h3 className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">{title}</h3>
-      {children}
-    </div>
-  )
-}
-
-function ExportRow(props: {
-  icon: LucideIcon
-  title: string
-  hint?: string
-  action?: string
-  busy?: boolean
-  disabled?: boolean
-  onClick: () => void
-}) {
-  const Icon = props.icon
-  return (
-    <div className="flex items-center gap-3 rounded-lg border bg-card p-3">
-      <Icon className="size-4 shrink-0 text-muted-foreground" />
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-[13px] font-medium">{props.title}</div>
-        {props.hint && <div className="truncate text-[11px] text-muted-foreground">{props.hint}</div>}
-      </div>
-      <Button
-        size="sm"
-        variant="secondary"
-        disabled={props.busy || props.disabled}
-        onClick={props.onClick}
-        className={cn(props.busy && "w-[72px]")}
+    <div className="flex flex-col gap-3 pb-4">
+      <PanelSection
+        id="refine-pose-smoothing"
+        title="Temporal smoothing"
+        summary={`${options.strength.toFixed(1)} frames · ${DETAIL_LABELS[options.detail]}${options.lock_shape ? " · shape locked" : ""}`}
       >
-        {props.busy ? <Loader2 className="animate-spin" /> : (props.action ?? "Export")}
-      </Button>
+        <p className="text-[11px] leading-relaxed text-muted-foreground">
+          Runs GEM&apos;s motion-adaptive filter over the predicted rotations, position and {subject} shape, then
+          rebuilds the meshes. It removes frame-to-frame jitter and backs off during fast movement. The raw result is
+          kept; switch between them in the viewer.
+        </p>
+        <RangeField
+          label="Strength"
+          value={options.strength}
+          display={`${options.strength.toFixed(1)} frame${options.strength === 1 ? "" : "s"}`}
+          min={0.5}
+          max={8}
+          step={0.5}
+          left="Light"
+          right="Strong (GEM default: 2)"
+          onChange={(strength) => setOptions({ ...options, strength })}
+        />
+        <DetailField value={options.detail} onChange={(detail) => setOptions({ ...options, detail })} />
+        <SwitchField
+          label={`Lock ${subject} shape`}
+          hint="Same proportions for the whole clip"
+          checked={options.lock_shape}
+          onChange={(lock_shape) => setOptions({ ...options, lock_shape })}
+        />
+      </PanelSection>
+
+      <ApplyBar
+        job={job}
+        active={active}
+        label={current?.status === "done" ? "Apply again" : "Apply smoothing"}
+        onApply={() => api.refine(job.id, options)}
+        onDefaults={() => setOptions({ strength: 2, detail: "balanced", lock_shape: true })}
+      >
+        {current?.status === "done" && current.options.strength != null && (
+          <>
+            Strength {current.options.strength}, {DETAIL_LABELS[current.options.detail].toLowerCase()}
+            {current.options.lock_shape ? ", shape locked" : ""}.
+          </>
+        )}
+      </ApplyBar>
     </div>
   )
 }
