@@ -162,6 +162,15 @@ across restarts.
   view opens looking through the capture camera (same position, direction and
   field of view as the video); orbit freely, and the crosshair button returns to
   the camera's view.
+
+  With a moving camera (ViPE or *Estimate rotation from background*) the 3D view
+  shows the world instead: the camera moves through it as a frustum along its
+  path (yellow), and the subject along hers (blue). While the crosshair is on, the
+  view rides along with the camera, so the subject lines up with the video; orbit
+  away to watch both move through space. The camera's pose per frame is the rigid
+  transform between the run's camera-space and world-space body (the same body,
+  so the fit is exact to a fraction of a millimetre); the drawn frustum and path
+  are lightly smoothed against per-frame depth noise.
 - *World* (Body Motion): world-space motion on a ground grid with the root
   trajectory, opening on a three-quarter view from the subject's front. The view follows the subject until you orbit; the crosshair
   re-centres and resumes following.
@@ -237,7 +246,7 @@ one-click *Re-run as fixed camera*.
 
 | Export | Contents |
 | --- | --- |
-| glTF animation (`.glb`) | **Skeleton** (Body Motion, default): a skinned body and an animated 77-joint SOMA armature, written natively without Blender. **Shape keys**: every frame's exact mesh as morph targets, one node per track. Options: World or Camera space, every Nth frame |
+| glTF animation (`.glb`) | **Skeleton** (Body Motion, default): a skinned body and an animated 77-joint SOMA armature, written natively without Blender. **Shape keys**: every frame's exact mesh as morph targets, one node per track. Options: World or Camera space, every Nth frame, **Include camera** (see below) |
 | FBX animation | The same skeleton (armature + skin) or shape-key animation, converted by a local Blender install |
 | VMD motion (MMD) | MikuMikuDance motion for any MMD model, matched by standard bone names (Body Motion) |
 | Point cache | Rest OBJ + `.pc2` per track (Blender *Mesh Cache* modifier, Maya, 3ds Max) |
@@ -247,6 +256,13 @@ one-click *Re-run as fixed camera*.
 | Rendered video | H.264 MP4 of exactly what the viewer shows, rendered frame by frame, with the clip's sound |
 | `predictions.pt` / `.json` | The complete GEM result (identical to `gem-infer --output`) and a readable JSON of parameters, joints, 2D keypoints and boxes |
 | NumPy `.npz` | All vertices, faces and frame/slot mapping |
+
+**Include camera** (glTF and FBX animation, on by default for moving cameras) adds
+the capture camera as a perspective camera with the clip's field of view. In
+World space it is keyed every frame at the camera's pose, so looking through it in
+Blender, Maya or a game engine reproduces the video's framing (set the render
+resolution to the video's aspect ratio); in Camera space it is a still camera at
+the origin.
 
 **Skeleton exports** use SOMA's own rig and skinning weights. Bones rest in a
 T-pose with world-aligned axes, and each frame stores every joint's rotation (plus
@@ -341,6 +357,7 @@ Layout:
 | `studio/gem_studio/worker.py` | Per-run subprocess that calls `gem.inference.cli`, adds progress reporting and builds the preview |
 | `studio/gem_studio/preview.py` | Converts predictions into the viewer bundle (fp16 vertex streams, keypoints, intrinsics, browser-playable media) |
 | `studio/gem_studio/exports.py` | Shape-key glTF, Blender FBX, OBJ sequence, point cache and NPZ exporters |
+| `studio/gem_studio/camera_path.py` | Per-frame capture-camera pose from a Motion preview (3D view and camera export) |
 | `studio/gem_studio/skeleton.py` | Per-frame SOMA skeleton and skinning data (cached next to the preview) |
 | `studio/gem_studio/rigging.py` | Skinned glTF, MMD bone mapping and the VMD writer |
 | `studio/gem_studio/refine.py` | Pose smoothing, and Motion anchoring, floor placement, foot planting and smoothing |

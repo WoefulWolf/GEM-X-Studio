@@ -8,13 +8,14 @@ to other skeletons (MMD) a matter of picking joints: rotations of skipped
 in-between joints fold into the next mapped bone automatically.
 """
 
+import json
 import struct
 from pathlib import Path
 
 import numpy as np
 from scipy.spatial.transform import Rotation
 
-from .exports import TRACK_COLORS, _Glb, _vertex_normals, load_faces
+from .exports import TRACK_COLORS, _Glb, _vertex_normals, add_capture_camera, load_faces
 
 # -- MMD naming --------------------------------------------------------------
 # (MMD bone, SOMA joint, MMD parent, A-pose arm side). センター has no SOMA joint.
@@ -105,7 +106,15 @@ def _sample(skeleton, step):
 
 # -- skinned glTF ------------------------------------------------------------
 def export_skinned_gltf(
-    skeleton_file, preview_dir, target, *, step=1, naming="soma", face_forward=False
+    skeleton_file,
+    preview_dir,
+    target,
+    *,
+    step=1,
+    naming="soma",
+    face_forward=False,
+    camera=False,
+    space="world",
 ):
     """Skinned mesh + animated skeleton (rotations for every joint, Hips translation).
 
@@ -119,6 +128,7 @@ def export_skinned_gltf(
     names = joint_names(skeleton, naming)
     deltas = world_deltas(skeleton)[frames]
     positions = skeleton["pos"][frames].astype(np.float64)
+    yaw = None
     if face_forward:
         yaw = _yaw_to_face_forward(deltas)
         deltas = yaw @ deltas
@@ -216,6 +226,9 @@ def export_skinned_gltf(
         }
     )
     channels.append({"sampler": len(samplers) - 1, "target": {"node": root, "path": "translation"}})
+    if camera:
+        info = json.loads((Path(preview_dir) / "preview.json").read_text())
+        add_capture_camera(glb, info, space, frames, time_accessor, channels, samplers, yaw=yaw)
     gltf["animations"] = [{"name": "GEM-X", "channels": channels, "samplers": samplers}]
     glb.write(target)
     return target

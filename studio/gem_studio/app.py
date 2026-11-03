@@ -19,7 +19,7 @@ from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import inputs, models, system
+from . import camera_path, inputs, models, system
 from .exports import EXPORTERS, find_blender, load_faces, load_slots
 from .jobs import JobManager, job_files
 from .paths import (
@@ -368,6 +368,7 @@ def create_app(*, port, native=False, dev=False, token=None):
         if not path.is_file():
             raise HTTPException(404, "Preview not ready")
         ensure_preview_audio(jobs.get(job_id), job_dir(job_id))
+        camera_path.ensure(path.parent)  # Motion runs built before camera paths existed
         return FileResponse(path, media_type="application/json")
 
     @app.get("/api/jobs/{job_id}/preview/media")
@@ -477,6 +478,10 @@ def create_app(*, port, native=False, dev=False, token=None):
             space = "world" if "world" in info.get("views", []) else "camera"
         step = max(1, int(options.get("step", 1)))
         naming = "mmd" if options.get("naming") == "mmd" else "soma"
+        camera = bool(options.get("camera")) and kind in ("gltf_animation", "gltf_skeleton", "fbx")
+        if camera:
+            camera_path.ensure(source)
+            info = json.loads((source / "preview.json").read_text())
         skeletal = kind in ("gltf_skeleton", "vmd") or (
             kind == "fbx" and options.get("mode", "skeleton") == "skeleton"
         )
@@ -498,6 +503,8 @@ def create_app(*, port, native=False, dev=False, token=None):
             suffix += [space] + ([f"every{step}"] if step > 1 else [])
         if skeletal and kind != "vmd" and naming == "mmd":
             suffix.append("mmd")
+        if camera:
+            suffix.append("camera")
         if variant != "raw":
             suffix.append(variant)
         if suffix:
@@ -524,7 +531,7 @@ def create_app(*, port, native=False, dev=False, token=None):
                 )
             if kind == "gltf_skeleton":
                 return rigging.export_skinned_gltf(
-                    skeleton, source, partial, step=step, naming=naming
+                    skeleton, source, partial, step=step, naming=naming, camera=camera, space=space
                 )
             if kind == "fbx":
                 make_glb = None
@@ -532,14 +539,26 @@ def create_app(*, port, native=False, dev=False, token=None):
 
                     def make_glb(path):  # noqa: E306
                         rigging.export_skinned_gltf(
-                            skeleton, source, path, step=step, naming=naming
+                            skeleton,
+                            source,
+                            path,
+                            step=step,
+                            naming=naming,
+                            camera=camera,
+                            space=space,
                         )
 
                 return EXPORTERS["fbx"][1](
-                    source, partial, blender=blender, space=space, step=step, make_glb=make_glb
+                    source,
+                    partial,
+                    blender=blender,
+                    space=space,
+                    step=step,
+                    make_glb=make_glb,
+                    camera=camera,
                 )
             if kind == "gltf_animation":
-                return EXPORTERS[kind][1](source, partial, space=space, step=step)
+                return EXPORTERS[kind][1](source, partial, space=space, step=step, camera=camera)
             return EXPORTERS[kind][1](source, partial)
 
         try:

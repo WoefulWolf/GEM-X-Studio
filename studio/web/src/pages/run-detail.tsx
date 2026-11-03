@@ -411,12 +411,22 @@ function ExportPanel({
   const [armAngle, setArmAngle] = useState(35)
   const [mmdScale, setMmdScale] = useState("12.5")
   const [faceForward, setFaceForward] = useState(true)
+  // A moving camera (ViPE or background estimate) is worth exporting by default.
+  const movingCamera = !!preview.camera?.mode && preview.camera.mode !== "static"
+  const [includeCamera, setIncludeCamera] = useState(movingCamera)
   const abort = useRef<AbortController | null>(null)
   const isVideo = preview.mode === "video"
   const hasWorld = preview.views.includes("world")
   const stem = job.title.replace(/\.[^.]+$/, "") + (variant === "refined" ? "_refined" : "")
   const blender = system.data?.blender
-  const exportOptions: ExportOptions = { variant, space, step: Number(step), naming, mode: format }
+  const exportOptions: ExportOptions = {
+    variant,
+    space,
+    step: Number(step),
+    naming,
+    mode: format,
+    camera: includeCamera,
+  }
 
   // Morph-target size: one float32 position delta per vertex per sampled frame and track.
   const prefix = space === "world" && hasWorld ? "world_" : "camera_"
@@ -475,6 +485,7 @@ function ExportPanel({
             format === "skeleton" ? "Skeleton" : "Shape keys",
             format === "skeleton" && (naming === "mmd" ? "MMD names" : "Standard names"),
             hasWorld && (space === "world" ? "World" : "Camera"),
+            includeCamera && "with camera",
             step !== "1" && `every ${step}${ordinal(Number(step))}`,
           ]
             .filter(Boolean)
@@ -551,6 +562,16 @@ function ExportPanel({
               </ToggleGroup>
             </OptionField>
           )}
+          <SwitchField
+            label="Include camera"
+            hint={
+              space === "world" && hasWorld
+                ? "The capture camera, keyed with the body (position, rotation, field of view): look through it to see the video's framing."
+                : "A camera at the origin with the video's field of view."
+            }
+            checked={includeCamera}
+            onChange={setIncludeCamera}
+          />
           <OptionField
             label="Frame rate"
             hint={`${sampled} keyframes · ${

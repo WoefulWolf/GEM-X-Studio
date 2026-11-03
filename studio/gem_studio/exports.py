@@ -213,6 +213,77 @@ class _Glb:
             out.write(struct.pack("<II", len(self.binary), 0x004E4942) + bytes(self.binary))
 
 
+# OpenCV camera (looks down +Z, y down) -> glTF camera (looks down -Z, y up).
+_CV_TO_GLTF_CAMERA = np.diag([1.0, -1.0, -1.0])
+
+
+def _continuous_quats(quats):
+    """Flip signs so consecutive quaternions stay in one hemisphere (smooth slerp)."""
+    quats = np.array(quats, dtype=np.float64)
+    for index in range(1, len(quats)):
+        if np.dot(quats[index], quats[index - 1]) < 0:
+            quats[index] *= -1
+    return quats
+
+
+def add_capture_camera(glb, info, space, frames, time_accessor, channels, samplers, yaw=None):
+    """Add the capture camera as a glTF perspective camera node; returns whether it was added.
+
+    World space: keyed per frame from ``camera_path`` (the camera moves with the run).
+    Camera space: the camera is the origin, looking down -Z (static). The field of
+    view is the clip's median vertical FOV. ``yaw`` rotates it with a turned skeleton.
+    """
+    from scipy.spatial.transform import Rotation
+
+    gltf = glb.json
+    path = info.get("camera_path")
+    if space == "world" and not path:
+        return False
+    width, height = info.get("image_size") or [0, 0]
+    focal = [frame["K"][1][1] for frame in info["frames"] if frame.get("K")]
+    if not (width and height and focal):
+        return False
+    gltf.setdefault("cameras", []).append(
+        {
+            "name": "capture_camera",
+            "type": "perspective",
+            "perspective": {
+                "yfov": float(2 * np.arctan(height / 2 / float(np.median(focal)))),
+                "aspectRatio": float(width / height),
+                "znear": 0.05,
+                "zfar": 1000.0,
+            },
+        }
+    )
+    node = {"name": "capture_camera", "camera": len(gltf["cameras"]) - 1}
+    gltf["nodes"].append(node)
+    index = len(gltf["nodes"]) - 1
+    gltf["scenes"][0]["nodes"].append(index)
+    if space != "world":
+        return True
+    rotations = np.asarray(path["rotation"], dtype=np.float64)[frames].reshape(-1, 3, 3)
+    positions = np.asarray(path["position"], dtype=np.float64)[frames]
+    if yaw is not None:
+        rotations = yaw @ rotations
+        positions = positions @ yaw.T
+    quats = _continuous_quats(Rotation.from_matrix(rotations @ _CV_TO_GLTF_CAMERA).as_quat())
+    node["translation"] = positions[0].tolist()
+    node["rotation"] = quats[0].tolist()
+    for values, kind, target in (
+        (positions, "VEC3", "translation"),
+        (quats, "VEC4", "rotation"),
+    ):
+        samplers.append(
+            {
+                "input": time_accessor,
+                "output": glb.accessor(values.astype(np.float32), kind),
+                "interpolation": "LINEAR",
+            }
+        )
+        channels.append({"sampler": len(samplers) - 1, "target": {"node": index, "path": target}})
+    return True
+
+
 def _animation_tracks(info, space):
     tracks = _tracks(info)
     prefix = "world_" if space == "world" else "camera_"
@@ -220,7 +291,7 @@ def _animation_tracks(info, space):
     return selected or tracks
 
 
-def export_gltf_animation(preview_dir, target, *, space="auto", step=1):
+def export_gltf_animation(preview_dir, target, *, space="auto", step=1, camera=False):
     """Animated GLB: per track a base mesh plus one morph target per sampled frame.
 
     Weights are keyed one-hot per frame with LINEAR interpolation, so playback
@@ -295,6 +366,8 @@ def export_gltf_animation(preview_dir, target, *, space="auto", step=1):
             }
         )
         channels.append({"sampler": len(samplers) - 1, "target": {"node": node, "path": "weights"}})
+    if camera:
+        add_capture_camera(glb, info, space, frames, time_accessor, channels, samplers)
     gltf["animations"] = [{"name": "GEM-X", "channels": channels, "samplers": samplers}]
     glb.write(target)
     return target
@@ -320,7 +393,7 @@ bpy.ops.export_scene.fbx(
     filepath=target, use_selection=False, bake_anim=True,
     bake_anim_use_nla_strips=False, bake_anim_use_all_actions=False,
     bake_anim_simplify_factor=0.0, bake_anim_step=float(step), add_leaf_bones=False,
-    axis_forward="-Z", axis_up="Y", object_types={"MESH", "EMPTY", "ARMATURE"},
+    axis_forward="-Z", axis_up="Y", object_types={"MESH", "EMPTY", "ARMATURE", "CAMERA"},
 )
 """
 
@@ -357,7 +430,7 @@ def _blender_version(path):
     return tuple(map(int, match.groups())) if match else (0, 0)
 
 
-def export_fbx(preview_dir, target, *, blender, space="auto", step=1, make_glb=None):
+def export_fbx(preview_dir, target, *, blender, space="auto", step=1, make_glb=None, camera=False):
     """Animated GLB converted to FBX by headless Blender.
 
     By default the GLB is the shape-key animation (FBX blend shapes);
@@ -376,7 +449,7 @@ def export_fbx(preview_dir, target, *, blender, space="auto", step=1, make_glb=N
         source = Path(temporary) / "animation.glb"
         script = Path(temporary) / "to_fbx.py"
         if make_glb is None:
-            export_gltf_animation(preview_dir, source, space=space, step=step)
+            export_gltf_animation(preview_dir, source, space=space, step=step, camera=camera)
         else:
             make_glb(source)
         script.write_text(_BLENDER_SCRIPT)

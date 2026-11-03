@@ -24,6 +24,8 @@ from pathlib import Path
 
 import numpy as np
 
+from . import camera_path
+
 
 def _np(value):
     import torch
@@ -374,6 +376,8 @@ def build_preview(job, prediction_path, job_dir, *, progress=None, stage=None, n
         info["media"] = raw["media"]
         if "audio" in raw:
             info["audio"] = raw["audio"]
+        if info.get("type") == "motion":
+            info["camera_path"] = camera_path.compute(directory, info)
         (directory / "preview.json").write_text(json.dumps(info))
         return info
     if saved.get("format") == "gem_pose_predictions_v1":
@@ -413,5 +417,7 @@ def build_preview(job, prediction_path, job_dir, *, progress=None, stage=None, n
     if stage is not None:
         stage("Writing predictions.json")
     write_predictions_json(saved, Path(job_dir) / "predictions.json")
+    if info.get("type") == "motion":
+        info["camera_path"] = camera_path.compute(directory, info)
     (directory / "preview.json").write_text(json.dumps(info))
     return info

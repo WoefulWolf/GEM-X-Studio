@@ -120,6 +120,8 @@ export interface ExportOptions {
   arm_angle_deg?: number
   scale?: number
   face_forward?: boolean
+  /** glTF/FBX animation: include the capture camera (animated in world space). */
+  camera?: boolean
 }
 
 export interface ModelComponent {
@@ -231,6 +233,17 @@ export interface Preview {
   ground?: number | null
   /** Motion: camera-to-display rotation for the 3D view (gravity up, heading removed). */
   camera_frame?: number[][]
+  /**
+   * Motion: capture-camera pose per frame. ``rotation`` (row-major 3x3) maps OpenCV camera
+   * coordinates to the Y-up world, ``position`` is the camera centre. The display copies are
+   * lightly smoothed for drawing the frustum and path.
+   */
+  camera_path?: {
+    rotation: number[][]
+    position: number[][]
+    display_rotation: number[][]
+    display_position: number[][]
+  }
   /** Motion: per-frame horizontal facing (x, z) in world space. */
   facing?: number[][]
   views: string[]

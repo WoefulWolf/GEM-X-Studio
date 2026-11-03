@@ -157,6 +157,7 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(function Viewer(
       if (engineRef.current) engineRef.current.setSource(preview, store)
       else {
         engineRef.current = new ViewerEngine(canvasRef.current, preview, store)
+        engineRef.current.onFollowChange = setFollow
         setReady(true)
       }
     })
@@ -478,7 +479,9 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(function Viewer(
               <IconToggle
                 label={
                   view === "camera3d"
-                    ? "Back to the camera's view"
+                    ? follow
+                      ? "Looking through the capture camera"
+                      : "Back to the camera's view"
                     : follow
                       ? "Following the subject"
                       : "Re-centre camera"

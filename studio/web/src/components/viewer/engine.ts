@@ -74,6 +74,7 @@ export class ViewerEngine {
   private shadowCatcher: THREE.Mesh
   private grid: THREE.GridHelper
   private trajectory: THREE.Line | null = null
+  private cameraPath: THREE.Line | null = null
   private frustum: THREE.LineSegments | null = null
   private slots: Slot[] = []
   private mode: ViewMode = "overlay"
@@ -86,6 +87,8 @@ export class ViewerEngine {
   private floor: number | null = null
   private framedFor: ViewMode | null = null
   follow = true
+  /** Called when the view stops following (the user took over the camera), so the UI can show it. */
+  onFollowChange?: (follow: boolean) => void
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -148,8 +151,13 @@ export class ViewerEngine {
     this.controls.enableDamping = true
     this.controls.dampingFactor = 0.12
     this.controls.addEventListener("change", () => (this.dirty = true))
-    this.controls.addEventListener("start", () => (this.follow = false))
+    this.controls.addEventListener("start", () => {
+      if (!this.follow) return
+      this.follow = false
+      this.onFollowChange?.(false)
+    })
     if (preview.trajectory?.length) this.buildTrajectory(preview.trajectory)
+    this.buildCameraPath()
     store.onLoad = () => {
       this.dirty = true
     }
@@ -181,6 +189,7 @@ export class ViewerEngine {
       this.trajectory = null
     }
     if (preview.trajectory?.length) this.buildTrajectory(preview.trajectory)
+    this.buildCameraPath()
     this.setFrame(this.frame)
   }
 
@@ -213,6 +222,7 @@ export class ViewerEngine {
     this.mode = mode
     this.controls.enabled = mode !== "overlay"
     this.follow = true
+    this.onFollowChange?.(true)
     this.framedFor = null
     if (mode !== "camera3d") this.setOrbitFov(DEFAULT_FOV)
     this.dirty = true
@@ -239,7 +249,7 @@ export class ViewerEngine {
   private instances(frame = this.frame): PreviewInstance[] {
     const record = this.preview.frames[frame]
     if (!record) return []
-    return (this.mode === "world" ? record.world : record.instances) ?? []
+    return (this.mode === "world" || this.movingCamera() ? record.world : record.instances) ?? []
   }
 
   private prefetch() {
@@ -343,7 +353,8 @@ export class ViewerEngine {
     this.dirty = false
     const { centroid, minY } = this.updateMeshes(this.frame)
     const frame = this.cameraFrame()
-    if (this.mode === "world") {
+    const moving = this.movingCamera()
+    if (this.mode === "world" || moving) {
       this.root.scale.set(1, 1, 1)
       this.root.quaternion.identity()
     } else if (this.mode === "camera3d" && frame) {
@@ -376,7 +387,7 @@ export class ViewerEngine {
     // Orbit views
     // A known floor (anchored worlds: y=0) beats the lowest point seen so far,
     // which sits below the soles whenever a frame dips slightly.
-    const ground = this.mode === "world" ? this.preview.ground : null
+    const ground = this.mode === "world" || moving ? this.preview.ground : null
     if (centroid && Number.isFinite(minY)) {
       if (this.floor == null || this.framedFor !== this.mode) this.floor = minY
       this.floor = Math.min(this.floor, minY)
@@ -395,6 +406,9 @@ export class ViewerEngine {
         const delta = centroid.clone().sub(this.controls.target)
         this.controls.target.add(delta)
         this.orbitCamera.position.add(delta)
+      } else if (this.follow && moving) {
+        // Locked to the capture camera: ride along with it.
+        this.frameCaptureCamera(centroid)
       }
     }
     if (ground != null) this.floor = ground
@@ -411,12 +425,17 @@ export class ViewerEngine {
       this.grid.position.x = Math.round(this.controls.target.x)
       this.grid.position.z = Math.round(this.controls.target.z)
     }
+    // Looking through a moving camera, its own frustum and path would only clutter the frame edges.
+    const throughCamera = moving && this.follow
+    if (this.cameraPath) {
+      this.cameraPath.visible = moving && !throughCamera
+    }
     if (this.trajectory) {
-      this.trajectory.visible = this.mode === "world"
+      this.trajectory.visible = this.mode === "world" || moving
       this.trajectory.position.y = (this.floor ?? 0) + 0.004
       this.trajectory.geometry.setDrawRange(0, this.frame + 1)
     }
-    if (this.mode === "camera3d") this.updateFrustum()
+    if (this.mode === "camera3d" && !throughCamera) this.updateFrustum()
     else if (this.frustum) this.frustum.visible = false
     this.keyLight.position.copy(this.orbitCamera.position).add(new THREE.Vector3(1, 2.5, 1))
     this.keyLight.target.position.copy(this.controls.target)
@@ -434,6 +453,49 @@ export class ViewerEngine {
       new THREE.LineBasicMaterial({ color: 0x5fb2ff, transparent: true, opacity: 0.9 }),
     )
     this.scene.add(this.trajectory)
+  }
+
+  /** The capture camera's path (smoothed), drawn in the 3D view when the camera moves. */
+  private buildCameraPath() {
+    if (this.cameraPath) {
+      this.scene.remove(this.cameraPath)
+      this.cameraPath.geometry.dispose()
+      ;(this.cameraPath.material as THREE.Material).dispose()
+      this.cameraPath = null
+    }
+    const points = this.preview.camera_path?.display_position
+    if (!points?.length) return
+    const geometry = new THREE.BufferGeometry()
+    geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(points.flat()), 3))
+    this.cameraPath = new THREE.Line(
+      geometry,
+      new THREE.LineBasicMaterial({ color: 0xffc857, transparent: true, opacity: 0.7 }),
+    )
+    this.cameraPath.visible = false
+    this.scene.add(this.cameraPath)
+  }
+
+  /**
+   * True in the 3D view for a moving camera (ViPE or background estimate): the scene is the
+   * world and the camera moves through it. A fixed camera keeps the camera-centred view.
+   */
+  private movingCamera() {
+    const mode = this.preview.camera?.mode
+    return this.mode === "camera3d" && !!this.preview.camera_path && !!mode && mode !== "static"
+  }
+
+  /** Capture-camera pose at ``frame``: exact, or the smoothed copy used for drawing. */
+  private cameraPose(frame: number, display = false) {
+    const path = this.preview.camera_path
+    const rotation = (display ? path?.display_rotation : path?.rotation)?.[frame]
+    const position = (display ? path?.display_position : path?.position)?.[frame]
+    if (!rotation || !position) return null
+    return {
+      rotation: new THREE.Matrix3().set(
+        ...(rotation as [number, number, number, number, number, number, number, number, number]),
+      ),
+      position: new THREE.Vector3(position[0], position[1], position[2]),
+    }
   }
 
   /** Three-quarter view from the subject's front (35° off her facing), slightly above. */
@@ -461,12 +523,16 @@ export class ViewerEngine {
    * vertical field of view as the video, orbiting around the subject's depth.
    */
   private frameCaptureCamera(centroid: THREE.Vector3) {
-    const forward = new THREE.Vector3(0, 0, 1).applyMatrix3(this.displayMatrix()).normalize()
-    const distance = Math.max(0.5, centroid.dot(forward))
+    // A moving camera is placed at its exact pose for this frame, so the subject lines up
+    // with the video; a fixed camera sits at the origin of the camera-centred view.
+    const pose = this.movingCamera() ? this.cameraPose(this.frame) : null
+    const origin = pose?.position ?? new THREE.Vector3()
+    const forward = new THREE.Vector3(0, 0, 1).applyMatrix3(pose?.rotation ?? this.displayMatrix()).normalize()
+    const distance = Math.max(0.5, centroid.clone().sub(origin).dot(forward))
     const K = this.intrinsics()
     if (K) this.setOrbitFov(THREE.MathUtils.radToDeg(2 * Math.atan(this.preview.image_size[1] / 2 / K[1][1])))
-    this.orbitCamera.position.set(0, 0, 0)
-    this.controls.target.copy(forward.multiplyScalar(distance))
+    this.orbitCamera.position.copy(origin)
+    this.controls.target.copy(origin).addScaledVector(forward, distance)
     this.orbitCamera.lookAt(this.controls.target)
     this.controls.update()
   }
@@ -480,7 +546,7 @@ export class ViewerEngine {
 
   /** Maps stored vertex coordinates to the current view's display coordinates. */
   private displayMatrix(): THREE.Matrix3 {
-    if (this.mode === "world") return IDENTITY
+    if (this.mode === "world" || this.movingCamera()) return IDENTITY
     if (this.mode === "camera3d") return this.cameraFrame() ?? CV_TO_GL_MATRIX
     return CV_TO_GL_MATRIX
   }
@@ -499,19 +565,22 @@ export class ViewerEngine {
     }
     const [width, height] = this.preview.image_size
     const depth = 0.6
+    // A moving camera sits at its (smoothed) pose; a fixed one at the origin.
+    const pose = this.movingCamera() ? this.cameraPose(this.frame, true) : null
+    const rotation = pose?.rotation ?? this.displayMatrix()
+    const origin = pose?.position ?? new THREE.Vector3()
     const corners = [
       [0, 0],
       [width, 0],
       [width, height],
       [0, height],
     ].map(([u, v]) =>
-      new THREE.Vector3(((u - K[0][2]) / K[0][0]) * depth, ((v - K[1][2]) / K[1][1]) * depth, depth).applyMatrix3(
-        this.displayMatrix(),
-      ),
+      new THREE.Vector3(((u - K[0][2]) / K[0][0]) * depth, ((v - K[1][2]) / K[1][1]) * depth, depth)
+        .applyMatrix3(rotation)
+        .add(origin),
     )
-    const origin = new THREE.Vector3()
     // Plus a drop line to the floor: shows the camera's height above the ground.
-    const foot = new THREE.Vector3(0, this.floor ?? 0, 0)
+    const foot = new THREE.Vector3(origin.x, this.floor ?? 0, origin.z)
     const segments = [
       origin, corners[0], origin, corners[1], origin, corners[2], origin, corners[3],
       corners[0], corners[1], corners[1], corners[2], corners[2], corners[3], corners[3], corners[0],
