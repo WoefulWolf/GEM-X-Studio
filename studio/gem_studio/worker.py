@@ -262,14 +262,17 @@ def run(job_dir):
 
     build_preview(job, output, job_dir, progress=progress, stage=stage)
     options = job.get("options", {})
-    if (
-        job["kind"] == "motion-video"
-        and options.get("camera_mode") == "static"
-        and options.get("anchor_world", True)
-    ):
-        refine_options = {"world": "anchor"}
-        report = refine_job(job_dir, job, refine_options)
-        emit("refine_done", options=refine_options, report=report)
+    if job["kind"] == "motion-video":
+        refine_options = None
+        if options.get("camera_mode") == "static" and options.get("anchor_world", True):
+            refine_options = {"world": "anchor"}
+        elif options.get("camera_mode") in ("vipe", "background"):
+            # A moving camera keeps GEM's world, which is already gravity-aligned (levelling
+            # on the floor would tilt it); the floor follows the feet against vertical drift.
+            refine_options = {"world": "gem", "level": "off", "follow_floor": True}
+        if refine_options:
+            report = refine_job(job_dir, job, refine_options)
+            emit("refine_done", options=refine_options, report=report)
     emit("done")
 
 

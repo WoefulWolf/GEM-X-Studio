@@ -167,10 +167,12 @@ across restarts.
   shows the world instead: the camera moves through it as a frustum along its
   path (yellow), and the subject along hers (blue). While the crosshair is on, the
   view rides along with the camera, so the subject lines up with the video; orbit
-  away to watch both move through space. The camera's pose per frame is the rigid
-  transform between the run's camera-space and world-space body (the same body,
-  so the fit is exact to a fraction of a millimetre); the drawn frustum and path
-  are lightly smoothed against per-frame depth noise.
+  away to watch both move through space. The camera's rotation comes from the
+  run's camera estimate (ViPE or the background estimate, which is smooth), aligned
+  once to GEM's world; its position is solved per frame from the body (the same
+  body in camera and world space). The drawn frustum and path are lightly smoothed
+  against per-frame depth noise. Older runs, until refined again, derive the
+  rotation from the body as well, which jitters by a few degrees.
 - *World* (Body Motion): world-space motion on a ground grid with the root
   trajectory, opening on a three-quarter view from the subject's front. The view follows the subject until you orbit; the crosshair
   re-centres and resumes following.
@@ -204,6 +206,13 @@ footwork. Motion's Refine tab offers:
   camera) places the camera-space motion in the world under one rotation, GEM's
   own gravity estimate averaged over the clip. It is exact for a still camera and
   has no drift. **GEM world** keeps GEM's integrated motion, for moving cameras.
+  Moving-camera runs are refined this way automatically, with **Follow the floor**
+  (*Feet & floor*) on and auto-level off: GEM's world is already gravity-aligned
+  then, but its height can drift as the subject moves away (on a ViPE test clip
+  her feet rose 0.8 m), which also lifts the derived camera. Following the floor
+  takes the floor height from the planted feet, smoothed over about a second, so
+  slow drift goes and jumps stay. Auto-level would read that drift as a tilted
+  floor and tilt the world instead.
 - *Stability*: a single camera judges distance far less precisely than
   position, so the body wobbles toward and away from the camera, most visible
   from the side. *Depth stabilization* (default 4 frames) smooths only the

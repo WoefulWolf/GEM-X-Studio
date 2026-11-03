@@ -190,7 +190,13 @@ MOTION_DEFAULTS = {
     "roll_deg": 0.0,  # manual extra sideways tilt
     "depth_smoothing": 4.0,  # Gaussian width (30 fps frames) on distance-to-camera only; 0 = off
     "lock_feet": True,  # cancel horizontal sliding of planted feet by moving the root
+    # GEM world: let the floor follow the planted feet (smoothed over ~1 s), removing the
+    # slow vertical drift GEM's integrated trajectory can build up with a moving camera.
+    "follow_floor": False,
 }
+
+# Smoothing width (30 fps frames) of the followed floor: slow drift goes, jumps stay.
+FOLLOW_FLOOR_FRAMES = 30.0
 
 # 77-joint indices: contact joints (ankle, ball) and the non-finger joints used as a COM proxy.
 CONTACT_JOINTS = (69, 70, 74, 75)
@@ -448,12 +454,14 @@ def anchor_world(camera, world):
     return anchored, rotation, float(np.percentile(spread, 95))
 
 
-def _place(camera, world, rotation, planted, *, soma_assets, device, progress=None):
+def _place(camera, world, rotation, planted, *, soma_assets, device, progress=None, follow=False):
     """Exact translation for anchored worlds and a contact-based floor at y=0.
 
     Anchored: decoded world vertices must equal ``rotation @ camera vertices``;
     the per-frame residual is absorbed into translation (SOMA's root-offset
-    convention). Floor: median lowest point over frames with a planted foot.
+    convention). Floor: median lowest point over frames with a planted foot, or with
+    ``follow``, that lowest point per planted frame, interpolated and smoothed over
+    ``FOLLOW_FLOOR_FRAMES`` (removes slow vertical drift, keeps jumps).
     """
     from gem.motion.geometry import MotionGeometry
 
@@ -476,15 +484,17 @@ def _place(camera, world, rotation, planted, *, soma_assets, device, progress=No
             first_centre = target[0].mean(axis=0)
         if progress is not None:
             progress(stop, length)
-    if planted.sum() >= 10:
+    if follow and planted.sum() >= 10:
+        floor = _fill_and_smooth(lowest, planted, sigma=FOLLOW_FLOOR_FRAMES)
+        source = "foot_contact_follow"
+    elif planted.sum() >= 10:
         floor, source = float(np.median(lowest[planted])), "foot_contact_median"
     else:
         floor, source = float(np.percentile(lowest, 10)), "lowest_point_p10"
-    shift = (
-        np.array([-first_centre[0], -floor, -first_centre[2]])
-        if rotation is not None
-        else np.array([0, -floor, 0])
-    )
+    shift = np.zeros((length, 3))
+    shift[:, 1] = -np.asarray(floor)
+    if rotation is not None:
+        shift[:, 0], shift[:, 2] = -first_centre[0], -first_centre[2]
     placed = {name: value.clone() for name, value in world.items()}
     placed["transl"][0] = torch.as_tensor(
         world["transl"][0].double().cpu().numpy() + correction + shift, dtype=world["transl"].dtype
@@ -632,11 +642,13 @@ def refine_motion(result, options, *, soma_assets, device, progress=None, stage=
         say("Stabilizing depth", f"{options['depth_smoothing']} frames")
         stabilized, report["depth"] = stabilize_depth(camera, float(options["depth_smoothing"]))
         if options["world"] != "anchor":
-            # GEM-world mode: carry the same camera-space change into the world.
+            # GEM-world mode: carry the same camera-space change into the world, through
+            # each frame's camera rotation (the camera may turn during the clip).
             delta = (stabilized["transl"][0] - camera["transl"][0]).double().cpu().numpy()
+            per_frame = _rotations(world)[:, 0] @ np.transpose(_rotations(camera)[:, 0], (0, 2, 1))
             world = {name: value.clone() for name, value in world.items()}
             world["transl"][0] += torch.as_tensor(
-                delta @ gem_camera_to_world(result).T, dtype=world["transl"].dtype
+                np.einsum("tij,tj->ti", per_frame, delta), dtype=world["transl"].dtype
             )
         camera = stabilized
     threshold = float(options["contact_threshold"])
@@ -675,9 +687,17 @@ def refine_motion(result, options, *, soma_assets, device, progress=None, stage=
         report.update(camera_to_world=rotation.tolist())
     else:
         rotation = None
-    say("Placing the floor")
+    follow = bool(options["follow_floor"]) and not anchored
+    say("Placing the floor", "following the planted feet" if follow else None)
     world, report["floor"] = _place(
-        source, world, rotation, planted, soma_assets=soma_assets, device=device, progress=progress
+        source,
+        world,
+        rotation,
+        planted,
+        soma_assets=soma_assets,
+        device=device,
+        progress=progress,
+        follow=follow,
     )
     if options["lock_feet"] and logits is not None:
         say("Locking planted feet")
@@ -690,7 +710,9 @@ def refine_motion(result, options, *, soma_assets, device, progress=None, stage=
             world, camera, logits, soma_assets=soma_assets, device=device, threshold=threshold
         )
         # Planting moves the soles to their anatomical height; settle the floor again.
-        world, _ = _place(world, world, None, planted, soma_assets=soma_assets, device=device)
+        world, _ = _place(
+            world, world, None, planted, soma_assets=soma_assets, device=device, follow=follow
+        )
     offset = float(options["floor_offset_cm"]) / 100.0
     if offset:
         world = {**world, "transl": world["transl"].clone()}

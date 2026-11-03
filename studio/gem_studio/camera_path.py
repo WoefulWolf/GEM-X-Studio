@@ -87,6 +87,42 @@ def compute(directory, info):
     }
 
 
+def with_estimated_rotations(directory, info, camera_to_world):
+    """Replace the fitted rotations by the run's own camera estimate (ViPE, background).
+
+    The per-frame fit takes its rotation from GEM's camera-space and world-space body
+    orientations, which are predicted separately and disagree by a few degrees from
+    frame to frame: the camera then pitches and, seen from metres away, bobs up and
+    down. A camera estimate is smooth; one rotation aligns its world with GEM's (the
+    chordal mean of fit x estimate^T), and the camera centre is then solved from the
+    body (least squares) with that rotation fixed.
+    """
+    path = info["camera_path"]
+    fitted = np.asarray(path["rotation"], dtype=np.float64).reshape(-1, 3, 3)
+    count = len(fitted)
+    estimate = np.asarray(camera_to_world, dtype=np.float64).reshape(-1, 3, 3)[:count]
+    if len(estimate) != count:
+        return path
+    u, _, vt = np.linalg.svd(np.einsum("tij,tkj->ik", fitted, estimate))
+    align = u @ np.diag([1.0, 1.0, np.sign(np.linalg.det(u @ vt))]) @ vt
+    rotations = align @ estimate
+    frames = info["frames"]
+    camera = load_slots(directory, "camera_body")[:, ::SAMPLE_EVERY].astype(np.float64)
+    world = load_slots(directory, "world_body")[:, ::SAMPLE_EVERY].astype(np.float64)
+    camera_mean = np.stack([camera[frame["instances"][0]["slot"]].mean(0) for frame in frames])
+    world_mean = np.stack([world[frame["world"][0]["slot"]].mean(0) for frame in frames])
+    positions = world_mean - np.einsum("tij,tj->ti", rotations, camera_mean)
+    display_positions = _gaussian(positions, SMOOTHING_FRAMES) if count > 1 else positions
+    return {
+        **path,
+        "rotation": rotations.reshape(-1, 9).round(5).tolist(),
+        "position": positions.round(4).tolist(),
+        "display_rotation": rotations.reshape(-1, 9).round(5).tolist(),
+        "display_position": display_positions.round(4).tolist(),
+        "rotation_source": "camera_estimate",
+    }
+
+
 _lock = threading.Lock()
 
 

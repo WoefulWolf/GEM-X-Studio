@@ -876,9 +876,14 @@ function MotionRefinePanel({ job, onRefined }: { job: Job; onRefined: () => void
   const current = job.refine
   const active = current?.status === "running" || current?.status === "queued"
   const fixedCamera = job.options.camera_mode === "static"
+  // A moving camera keeps GEM's world, which is already gravity-aligned: no auto-level
+  // (the drifting floor would tilt it), and the floor follows the feet instead.
+  const cameraDefaults: Partial<RefineOptions> = fixedCamera
+    ? { world: "anchor" }
+    : { world: "gem", level: "off", follow_floor: true }
   const [options, setOptions] = useState<RefineOptions>(() => ({
     ...MOTION_DEFAULTS,
-    world: fixedCamera ? "anchor" : "gem",
+    ...cameraDefaults,
     ...(current?.options ?? {}),
   }))
   const set = (patch: Partial<RefineOptions>) => setOptions((old) => ({ ...old, ...patch }))
@@ -914,7 +919,7 @@ function MotionRefinePanel({ job, onRefined }: { job: Job; onRefined: () => void
         <p className="text-[11px] leading-relaxed text-muted-foreground">
           {options.world === "anchor"
             ? "Exact for a camera that did not move: the camera-space motion under GEM's gravity estimate. No drift."
-            : "GEM's integrated world motion. Use it when the camera moved; it can drift on long in-place movement."}
+            : "GEM's integrated world motion, for a camera that moved. Its height can drift; Follow the floor (Feet & floor) removes that."}
           {options.world === "anchor" && !fixedCamera && (
             <span className="mt-1 block text-amber-600 dark:text-amber-400">
               This run assumed a moving camera; anchoring is only correct if it was actually still.
@@ -972,6 +977,12 @@ function MotionRefinePanel({ job, onRefined }: { job: Job; onRefined: () => void
           checked={options.level !== "off"}
           onChange={(on) => set({ level: on ? "auto" : "off" })}
         />
+        {!fixedCamera && options.world === "gem" && options.level !== "off" && (
+          <p className="-mt-2 text-[11px] leading-relaxed text-amber-600 dark:text-amber-400">
+            With a moving camera GEM&apos;s world is already level; drift in the trajectory can make the floor
+            look tilted and auto-level then tilts the world. Prefer Follow the floor.
+          </p>
+        )}
         <RangeField
           label="Lean toward / away from camera"
           value={tilt}
@@ -1004,6 +1015,7 @@ function MotionRefinePanel({ job, onRefined }: { job: Job; onRefined: () => void
         title="Feet & floor"
         summary={[
           options.plant_feet ? `Planted · ${Math.round(sensitivity * 100)}%` : "Not planted",
+          options.world === "gem" && options.follow_floor && "floor follows",
           offset && `body ${signed(offset, " cm")}`,
         ]
           .filter(Boolean)
@@ -1015,6 +1027,14 @@ function MotionRefinePanel({ job, onRefined }: { job: Job; onRefined: () => void
           checked={!!options.plant_feet}
           onChange={(plant_feet) => set({ plant_feet })}
         />
+        {options.world === "gem" && (
+          <SwitchField
+            label="Follow the floor"
+            hint="Removes slow up/down drift: the floor follows the planted feet (smoothed over about a second). For moving cameras."
+            checked={!!options.follow_floor}
+            onChange={(follow_floor) => set({ follow_floor })}
+          />
+        )}
         <RangeField
           label="Contact sensitivity"
           value={sensitivity}
@@ -1073,7 +1093,7 @@ function MotionRefinePanel({ job, onRefined }: { job: Job; onRefined: () => void
         active={active}
         label={current?.status === "done" ? "Apply again" : "Apply"}
         onApply={() => api.refine(job.id, options)}
-        onDefaults={() => setOptions({ ...MOTION_DEFAULTS, world: fixedCamera ? "anchor" : "gem" })}
+        onDefaults={() => setOptions({ ...MOTION_DEFAULTS, ...cameraDefaults })}
       >
         {report && (
           <>
@@ -1084,7 +1104,11 @@ function MotionRefinePanel({ job, onRefined }: { job: Job; onRefined: () => void
               }, ${Math.abs(report.level.sideways_deg ?? 0).toFixed(1)}° sideways) from the ${
                 report.level.method === "floor_plane" ? "floor plane" : "body balance"
               }`}
-            {report.floor === "foot_contact_median" ? " · floor from foot contacts" : " · floor from lowest points"}
+            {report.floor === "foot_contact_follow"
+              ? " · floor follows the feet"
+              : report.floor === "foot_contact_median"
+                ? " · floor from foot contacts"
+                : " · floor from lowest points"}
             {report.depth && ` · ${report.depth.depth_jitter_removed_cm} cm of depth jitter removed`}
             {report.lock_feet && " · feet locked"}
             {plant && (

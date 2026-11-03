@@ -74,6 +74,8 @@ export interface RefineOptions {
   depth_smoothing?: number
   /** Motion: cancel horizontal sliding of planted feet. */
   lock_feet?: boolean
+  /** Motion, GEM world: the floor follows the planted feet, removing slow vertical drift. */
+  follow_floor?: boolean
 }
 
 export interface RefineReport {

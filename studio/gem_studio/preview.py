@@ -258,6 +258,20 @@ def _camera_frame(saved):
     return np.round(display_camera_frame(rotation), 6).tolist()
 
 
+def _motion_camera_path(saved, directory, info):
+    # Camera pose per frame; smooth rotations from the camera estimate for moving cameras.
+    path = camera_path.compute(directory, info)
+    rotations = (saved.get("camera") or {}).get("R_w2c")
+    if rotations is not None and (info.get("camera") or {}).get("mode") not in (None, "static"):
+        import torch
+
+        world_to_camera = torch.as_tensor(rotations, dtype=torch.float64).reshape(-1, 3, 3)
+        path = camera_path.with_estimated_rotations(
+            directory, {**info, "camera_path": path}, world_to_camera.transpose(1, 2).numpy()
+        )
+    return path
+
+
 def build_motion_preview(saved, directory, *, soma_assets, device, progress=None, stage=None):
     import torch
 
@@ -377,7 +391,7 @@ def build_preview(job, prediction_path, job_dir, *, progress=None, stage=None, n
         if "audio" in raw:
             info["audio"] = raw["audio"]
         if info.get("type") == "motion":
-            info["camera_path"] = camera_path.compute(directory, info)
+            info["camera_path"] = _motion_camera_path(saved, directory, info)
         (directory / "preview.json").write_text(json.dumps(info))
         return info
     if saved.get("format") == "gem_pose_predictions_v1":
@@ -418,6 +432,6 @@ def build_preview(job, prediction_path, job_dir, *, progress=None, stage=None, n
         stage("Writing predictions.json")
     write_predictions_json(saved, Path(job_dir) / "predictions.json")
     if info.get("type") == "motion":
-        info["camera_path"] = camera_path.compute(directory, info)
+        info["camera_path"] = _motion_camera_path(saved, directory, info)
     (directory / "preview.json").write_text(json.dumps(info))
     return info
