@@ -12,6 +12,7 @@ import traceback
 from pathlib import Path
 
 from .paths import MOTION_CONFIG, SOMA_DIR, WEIGHTS_DIR, ensure_ffmpeg_on_path
+from .power import opt_out_of_power_throttling
 
 _last_progress = [0.0]
 
@@ -311,6 +312,8 @@ def run_refine(job_dir):
 
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
+    # Runs keep going while the Studio window is in the background; stay at full speed.
+    opt_out_of_power_throttling()
     try:
         if "--refine" in argv:
             run_refine(argv[0])

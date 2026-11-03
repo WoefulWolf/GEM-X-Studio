@@ -16,6 +16,7 @@ import webbrowser
 from pathlib import Path
 
 from .paths import JOBS_DIR, MEDIA_FILE_TYPES, PACKAGE_DIR, PORTABLE, TOOLS_DIR
+from .power import opt_out_of_power_throttling
 
 
 def _free_port(preferred):
@@ -107,6 +108,7 @@ def _window_icon():
 
 def main(argv=None):
     _windowless_logging()
+    opt_out_of_power_throttling()
     parser = argparse.ArgumentParser(description="GEM-X Studio")
     parser.add_argument("--browser", action="store_true", help="Use the default web browser")
     parser.add_argument("--port", type=int, default=8765)

@@ -103,7 +103,9 @@ def ensure_skeleton(job_dir, variant, space, *, soma_assets, device="cpu"):
 
 def main(argv=None):
     from .paths import SOMA_DIR
+    from .power import opt_out_of_power_throttling
 
+    opt_out_of_power_throttling()
     job_dir, variant, space = (sys.argv[1:] if argv is None else argv)[:3]
     print(ensure_skeleton(job_dir, variant, space, soma_assets=SOMA_DIR))
 

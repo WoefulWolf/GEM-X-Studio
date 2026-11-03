@@ -277,6 +277,17 @@ run directly:
 Environment variables `GEM_WEIGHTS_DIR`, `GEM_SOMA_ASSETS` and `GEM_STUDIO_DATA`
 override the model, asset and data folders.
 
+## Troubleshooting
+
+- **Runs in the background**: Studio opts out of Windows' efficiency mode
+  (EcoQoS), so a run keeps full speed while you work in other windows.
+- **Screen goes black for a few seconds and the run fails with "illegal memory
+  access"**: Windows reset the graphics driver (Event Viewer → System shows
+  `nvlddmkm` event 153, "Reset TDR occurred"). This is not a VRAM shortage. If it
+  happens at random and a retry works, check GPU overclocks or undervolts (for
+  example an MSI Afterburner voltage/frequency curve): sustained compute is less
+  forgiving than games. Test with the stock settings.
+
 ## Development
 
 ```bash
