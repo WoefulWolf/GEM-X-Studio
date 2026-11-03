@@ -149,8 +149,8 @@ It typically takes a few seconds.
   movement (it scales the speeds at which smoothing backs off).
 - *Lock shape*: keeps body or hand proportions constant across the clip.
 
-The raw result is kept; the viewer's **Raw / Refined** switch compares them, and
-exports follow the selected one (`predictions_refined.pt` holds the refined
+The raw result is kept. The green **Raw / Refined** switch at the top of the viewer
+compares them (runs open on Refined once one exists), and exports follow the selected one (`predictions_refined.pt` holds the refined
 parameters and geometry).
 
 **Refine (Body Motion).** GEM builds world motion by integrating the predicted

@@ -103,12 +103,12 @@ export interface ViewerProps {
   jobId: string
   preview: Preview
   variant?: Variant
-  /** Rendered at the left of the floating toolbar (e.g. a Raw/Refined switch). */
-  toolbar?: React.ReactNode
+  /** Rendered centred at the top of the viewer (the Raw/Refined switch). */
+  center?: React.ReactNode
 }
 
 export const Viewer = forwardRef<ViewerHandle, ViewerProps>(function Viewer(
-  { jobId, preview, variant = "raw", toolbar },
+  { jobId, preview, variant = "raw", center },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -367,7 +367,7 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(function Viewer(
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border bg-viewer">
-      <div ref={containerRef} className="relative flex min-h-0 flex-1 items-center justify-center bg-viewer">
+      <div ref={containerRef} className="@container relative flex min-h-0 flex-1 items-center justify-center bg-viewer">
         <div className="relative" style={{ width: stage.width, height: stage.height }}>
           {isVideo ? (
             <video
@@ -407,14 +407,14 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(function Viewer(
           </div>
         )}
 
-        {/* Floating toolbar */}
-        <div className="absolute top-3 left-3 z-20 flex items-center gap-2">
-          {toolbar}
+        {/* Floating toolbar: views left, result centred, display options right. A narrow
+            viewer moves the centre item onto a second row. */}
+        <div className="pointer-events-none absolute inset-x-3 top-3 z-20 grid grid-cols-[auto_1fr] items-start gap-2 @xl:grid-cols-[1fr_auto_1fr] [&>*]:pointer-events-auto">
           <ToggleGroup
             type="single"
             value={view}
             onValueChange={(value) => value && setView(value as ViewMode)}
-            className="rounded-lg bg-black/55 p-0.5 text-white backdrop-blur"
+            className="col-start-1 row-start-1 justify-self-start rounded-lg bg-black/55 p-0.5 text-white backdrop-blur"
           >
             {views.map((item) => (
               <ToggleGroupItem
@@ -427,77 +427,78 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(function Viewer(
               </ToggleGroupItem>
             ))}
           </ToggleGroup>
-        </div>
-        <div className="absolute top-3 right-3 z-20 flex items-center gap-1 rounded-lg bg-black/55 p-0.5 text-white backdrop-blur">
-          <IconToggle label={showMesh ? "Hide mesh" : "Show mesh"} active={showMesh} onClick={() => setShowMesh(!showMesh)}>
-            {showMesh ? <Eye /> : <EyeOff />}
-          </IconToggle>
-          {hasKeypoints && (
-            <IconToggle
-              label="2D keypoints"
-              active={showKeypoints}
-              onClick={() => setShowKeypoints(!showKeypoints)}
-              disabled={view !== "overlay"}
-            >
-              <Spline />
+          <div className="col-span-2 justify-self-center empty:hidden @xl:col-span-1 @xl:col-start-2 @xl:row-start-1">{center}</div>
+          <div className="col-start-2 row-start-1 flex items-center gap-1 justify-self-end rounded-lg @xl:col-start-3 bg-black/55 p-0.5 text-white backdrop-blur">
+            <IconToggle label={showMesh ? "Hide mesh" : "Show mesh"} active={showMesh} onClick={() => setShowMesh(!showMesh)}>
+              {showMesh ? <Eye /> : <EyeOff />}
             </IconToggle>
-          )}
-          {view !== "overlay" && (
-            <IconToggle
-              label={
-                view === "camera3d"
-                  ? "Back to the camera's view"
-                  : follow
-                    ? "Following the subject"
-                    : "Re-centre camera"
-              }
-              active={follow}
-              onClick={() => {
-                setFollow(true)
-                engineRef.current?.resetCamera()
-              }}
-            >
-              <Crosshair />
-            </IconToggle>
-          )}
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button variant="ghost" size="icon" className="size-7 text-white/80 hover:bg-white/10 hover:text-white">
-                <SlidersHorizontal />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent align="end" className="w-64">
-              <div className="flex flex-col gap-4">
-                <div className="flex flex-col gap-2">
-                  <Label className="text-xs">Overlay opacity · {Math.round(opacity * 100)}%</Label>
-                  <Slider min={0.15} max={1} step={0.01} value={[opacity]} onValueChange={([value]) => setOpacity(value)} />
-                </div>
-                <div className="flex flex-col gap-2">
-                  <Label className="text-xs">Body colour</Label>
-                  <div className="flex gap-2">
-                    {MESH_COLORS.map((value) => (
-                      <button
-                        key={value}
-                        aria-label={value}
-                        onClick={() => setColor(value)}
-                        className={cn(
-                          "size-6 rounded-full ring-offset-2 ring-offset-popover transition",
-                          color === value && "ring-2 ring-ring",
-                        )}
-                        style={{ background: value }}
-                      />
-                    ))}
+            {hasKeypoints && (
+              <IconToggle
+                label="2D keypoints"
+                active={showKeypoints}
+                onClick={() => setShowKeypoints(!showKeypoints)}
+                disabled={view !== "overlay"}
+              >
+                <Spline />
+              </IconToggle>
+            )}
+            {view !== "overlay" && (
+              <IconToggle
+                label={
+                  view === "camera3d"
+                    ? "Back to the camera's view"
+                    : follow
+                      ? "Following the subject"
+                      : "Re-centre camera"
+                }
+                active={follow}
+                onClick={() => {
+                  setFollow(true)
+                  engineRef.current?.resetCamera()
+                }}
+              >
+                <Crosshair />
+              </IconToggle>
+            )}
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="ghost" size="icon" className="size-7 text-white/80 hover:bg-white/10 hover:text-white">
+                  <SlidersHorizontal />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-64">
+                <div className="flex flex-col gap-4">
+                  <div className="flex flex-col gap-2">
+                    <Label className="text-xs">Overlay opacity · {Math.round(opacity * 100)}%</Label>
+                    <Slider min={0.15} max={1} step={0.01} value={[opacity]} onValueChange={([value]) => setOpacity(value)} />
                   </div>
+                  <div className="flex flex-col gap-2">
+                    <Label className="text-xs">Body colour</Label>
+                    <div className="flex gap-2">
+                      {MESH_COLORS.map((value) => (
+                        <button
+                          key={value}
+                          aria-label={value}
+                          onClick={() => setColor(value)}
+                          className={cn(
+                            "size-6 rounded-full ring-offset-2 ring-offset-popover transition",
+                            color === value && "ring-2 ring-ring",
+                          )}
+                          style={{ background: value }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                  {hasKeypoints && (
+                    <label className="flex items-center justify-between text-xs">
+                      2D keypoints
+                      <Switch checked={showKeypoints} onCheckedChange={setShowKeypoints} />
+                    </label>
+                  )}
                 </div>
-                {hasKeypoints && (
-                  <label className="flex items-center justify-between text-xs">
-                    2D keypoints
-                    <Switch checked={showKeypoints} onCheckedChange={setShowKeypoints} />
-                  </label>
-                )}
-              </div>
-            </PopoverContent>
-          </Popover>
+              </PopoverContent>
+            </Popover>
+          </div>
         </div>
       </div>
 

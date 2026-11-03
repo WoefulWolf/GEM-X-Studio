@@ -84,7 +84,8 @@ export function RunDetailPage({ jobId }: { jobId: string }) {
   const viewer = useRef<ViewerHandle>(null)
   const done = job?.status === "done"
   const refined = job?.refine?.status === "done"
-  const [variant, setVariant] = useState<Variant>("raw")
+  // Open on the refined result whenever there is one; Raw stays one click away.
+  const [variant, setVariant] = useState<Variant>("refined")
   const raw = useQuery({
     queryKey: ["preview", jobId, "raw"],
     queryFn: () => api.preview(jobId, "raw"),
@@ -98,14 +99,8 @@ export function RunDetailPage({ jobId }: { jobId: string }) {
     enabled: done && refined,
     staleTime: Infinity,
   })
-  // Anchored Motion runs open on the anchored world; GEM's own stays under Raw.
-  const opened = useRef(false)
-  useEffect(() => {
-    if (!job || opened.current) return
-    opened.current = true
-    if (job.kind === "motion-video" && job.refine?.status === "done") setVariant("refined")
-  }, [job])
-  const shown: Variant = variant === "refined" && refinedPreview.data ? "refined" : "raw"
+  // Wait for the refined bundle rather than flashing the raw one first.
+  const shown: Variant = variant === "refined" && refined ? "refined" : "raw"
   const preview = { data: shown === "refined" ? refinedPreview.data : raw.data }
 
   if (missing) {
@@ -174,21 +169,22 @@ export function RunDetailPage({ jobId }: { jobId: string }) {
               jobId={job.id}
               preview={preview.data}
               variant={shown}
-              toolbar={
+              center={
                 refined && (
                   <ToggleGroup
                     type="single"
                     value={shown}
                     onValueChange={(value) => value && setVariant(value as Variant)}
-                    className="rounded-lg bg-black/55 p-0.5 text-white backdrop-blur"
+                    aria-label="Result"
+                    className="gap-0.5 rounded-lg bg-black/60 p-1 text-white shadow-lg ring-1 ring-primary/50 backdrop-blur"
                   >
                     {(["raw", "refined"] as const).map((value) => (
                       <ToggleGroupItem
                         key={value}
                         value={value}
-                        className="h-7 gap-1.5 rounded-md px-2.5 text-xs text-white/75 capitalize hover:bg-white/10 hover:text-white data-[state=on]:bg-white/20 data-[state=on]:text-white"
+                        className="h-8 gap-1.5 rounded-md px-4 text-sm font-medium text-white/70 capitalize hover:bg-white/10 hover:text-white data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:shadow-sm data-[state=on]:hover:bg-primary"
                       >
-                        {value === "refined" && <Sparkles className="size-3.5" />}
+                        {value === "refined" && <Sparkles className="size-4" />}
                         {value}
                       </ToggleGroupItem>
                     ))}
