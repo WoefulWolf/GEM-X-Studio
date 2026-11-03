@@ -60,7 +60,8 @@ def _probe():
         output = subprocess.run(
             [python_executable(), "-c", _PROBE],
             capture_output=True,
-            text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=180,
             creationflags=flags,
             cwd=REPO_ROOT,

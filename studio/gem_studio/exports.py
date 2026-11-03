@@ -456,7 +456,7 @@ def export_fbx(preview_dir, target, *, blender, space="auto", step=1, make_glb=N
         result = subprocess.run(
             [blender, "--background", "--factory-startup", "--python", str(script), "--",
              str(source), str(target), str(fps), str(max(1, int(step)))],
-            capture_output=True, text=True, timeout=1800,
+            capture_output=True, encoding="utf-8", errors="replace", timeout=1800,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )  # fmt: skip
         if result.returncode != 0 or not Path(target).is_file():

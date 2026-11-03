@@ -224,6 +224,7 @@ class JobManager:
             PATH=os.environ["PATH"],
             PYTHONUNBUFFERED="1",
             PYTHONIOENCODING="utf-8",
+            PYTHONUTF8="1",
             TORCH_ALLOW_TF32_CUBLAS_OVERRIDE="0",
             GEM_STUDIO_DATA=str(DATA_DIR),
         )

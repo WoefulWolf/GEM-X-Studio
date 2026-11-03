@@ -86,14 +86,24 @@ class StreamWriter:
         return info
 
 
-def _ffmpeg(*args):
-    subprocess.run(
-        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y", *args],
-        check=True,
+def _run(command):
+    """Run a tool, decoding its output as UTF-8 (not the Windows code page)."""
+    return subprocess.run(
+        command,
         capture_output=True,
-        text=True,
+        encoding="utf-8",
+        errors="replace",
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
+
+
+def _ffmpeg(*args):
+    command = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y", *args]
+    result = _run(command)
+    if result.returncode != 0:
+        raise subprocess.CalledProcessError(
+            result.returncode, command, result.stdout, result.stderr
+        )
 
 
 AUDIO_CODEC = ("-c:a", "aac", "-b:a", "160k")
@@ -111,13 +121,8 @@ def _browser_video(source, target):
 
 def has_audio(path):
     """True when ffmpeg lists an audio stream in ``path``."""
-    probe = subprocess.run(
-        ["ffmpeg", "-hide_banner", "-nostdin", "-i", str(path)],
-        capture_output=True,
-        text=True,
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-    )
-    return " Audio:" in probe.stderr
+    probe = _run(["ffmpeg", "-hide_banner", "-nostdin", "-i", str(path)])
+    return " Audio:" in (probe.stderr or "")
 
 
 def add_audio(video, source, *, start=0.0, duration=None):
@@ -141,6 +146,15 @@ def add_audio(video, source, *, start=0.0, duration=None):
     finally:
         partial.unlink(missing_ok=True)
     return True
+
+
+def _optional_audio(function, *args, **kwargs):
+    """Sound is a bonus: a failure here leaves the preview silent instead of failing the run."""
+    try:
+        return function(*args, **kwargs)
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        print(f"Preview without sound: {type(error).__name__}: {error}", flush=True)
+        return False
 
 
 _audio_lock = threading.Lock()
@@ -404,7 +418,7 @@ def build_preview(job, prediction_path, job_dir, *, progress=None, stage=None, n
                 stage("Preparing preview video")
             _browser_video(source, directory / "source.mp4")
             info["media"] = "source.mp4"
-            info["audio"] = has_audio(directory / "source.mp4")
+            info["audio"] = _optional_audio(has_audio, directory / "source.mp4")
     else:
         device = resolve_device(job.get("options", {}).get("device"))
         info = build_motion_preview(
@@ -421,7 +435,8 @@ def build_preview(job, prediction_path, job_dir, *, progress=None, stage=None, n
             start=clip["requested_start"],
             duration=clip["selected_duration"],
         )
-        info["audio"] = add_audio(
+        info["audio"] = _optional_audio(
+            add_audio,
             directory / "source.mp4",
             source,
             start=clip["requested_start"],
