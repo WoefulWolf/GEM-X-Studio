@@ -27,6 +27,7 @@ import {
   useEffect,
   useImperativeHandle,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react"
@@ -54,6 +55,10 @@ const HAND_CHAINS = [
   [0, 20, 21, 22, 23, 24],
 ]
 const KP_COLORS: Record<string, string> = { left: "#50e178", right: "#50afff", body: "#ffc857" }
+// Corner preview of the source video in 3D/World: share of the Overlay size, inset in px.
+const PIP_SCALE = 0.22
+const PIP_MARGIN = 12
+
 const MESH_COLORS = ["#9be15d", "#7cc4ff", "#f0a6ff", "#ffd27a", "#e8e8e8"]
 
 function drawKeypoints(ctx: CanvasRenderingContext2D, record: PreviewFrame | undefined, sx: number, sy: number) {
@@ -125,7 +130,8 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(function Viewer(
   const videoRef = useRef<HTMLVideoElement>(null)
   const imageRef = useRef<HTMLImageElement>(null)
   const engineRef = useRef<ViewerEngine | null>(null)
-  const [stage, setStage] = useState({ width: 0, height: 0 })
+  // The whole viewer area; Overlay uses the media-shaped box inside it, 3D and World all of it.
+  const [box, setBox] = useState({ width: 0, height: 0 })
   const [ready, setReady] = useState(false)
   const [frame, setFrame] = useState(0)
   const [playing, setPlaying] = useState(false)
@@ -146,6 +152,17 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(function Viewer(
   const fps = preview.fps ?? 30
   const frameCount = preview.frame_count
   const [imageWidth, imageHeight] = preview.image_size
+  // Overlay: the media-shaped box centred in the viewer. 3D/World: the whole viewer.
+  const fitted = useMemo(() => {
+    const aspect = imageWidth / imageHeight
+    return box.width / Math.max(box.height, 1) > aspect
+      ? { width: Math.floor(box.height * aspect), height: Math.floor(box.height) }
+      : { width: Math.floor(box.width), height: Math.floor(box.width / aspect) }
+  }, [box.width, box.height, imageWidth, imageHeight])
+  const stage = useMemo(
+    () => (view === "overlay" ? fitted : { width: Math.floor(box.width), height: Math.floor(box.height) }),
+    [view, fitted, box.width, box.height],
+  )
   const hasKeypoints = preview.type === "pose"
 
   // One engine per viewer; switching variant only swaps its vertex source.
@@ -173,23 +190,21 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(function Viewer(
     [],
   )
 
-  // Fit the stage to the media aspect ratio inside the container.
+  // Track the viewer area; the stage is derived from it per view.
   useLayoutEffect(() => {
     const container = containerRef.current
     if (!container) return
     const observer = new ResizeObserver(() => {
       const { width, height } = container.getBoundingClientRect()
-      const aspect = imageWidth / imageHeight
-      const fitted = width / height > aspect ? { width: height * aspect, height } : { width, height: width / aspect }
-      setStage({ width: Math.floor(fitted.width), height: Math.floor(fitted.height) })
+      setBox({ width, height })
     })
     observer.observe(container)
     return () => observer.disconnect()
-  }, [imageWidth, imageHeight])
+  }, [])
 
   useEffect(() => {
     engineRef.current?.setSize(stage.width, stage.height)
-  }, [stage, ready])
+  }, [stage.width, stage.height, ready])
   useEffect(() => {
     engineRef.current?.setMode(view)
   }, [view, ready])
@@ -390,28 +405,41 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(function Viewer(
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border bg-viewer">
       <div ref={containerRef} className="@container relative flex min-h-0 flex-1 items-center justify-center bg-viewer">
+        {isVideo && (
+          <video
+            ref={videoRef}
+            src={urls.previewMedia(jobId)}
+            // Unmuted by the volume effect when the preview carries sound.
+            muted
+            playsInline
+            preload="auto"
+            onEnded={() => setPlaying(false)}
+            // Sized like the Overlay stage; the corner preview is the same element translated
+            // and scaled (one set of animated properties), so shrinking and growing back are
+            // exact reverses. Radius and ring are sized up to come out at ~6 px / 1 px.
+            style={{
+              left: (box.width - fitted.width) / 2,
+              top: (box.height - fitted.height) / 2,
+              width: fitted.width,
+              height: fitted.height,
+              ...(view !== "overlay" && {
+                translate: `${PIP_MARGIN - (box.width - fitted.width) / 2}px ${
+                  box.height - PIP_MARGIN - fitted.height * PIP_SCALE - (box.height - fitted.height) / 2
+                }px`,
+                scale: String(PIP_SCALE),
+              }),
+            }}
+            className={cn(
+              // Only the shrink/grow animates; size and position follow the viewer instantly.
+              "absolute origin-top-left bg-black object-fill transition-[translate,scale,opacity,border-radius,box-shadow] duration-300 ease-out",
+              view !== "overlay" && "z-20 rounded-[27px] opacity-90 shadow-2xl ring-[4px] ring-white/15",
+              // Hidden, not removed: the video keeps driving playback.
+              !showMedia && "invisible",
+            )}
+          />
+        )}
         <div className="relative" style={{ width: stage.width, height: stage.height }}>
-          {isVideo ? (
-            <video
-              ref={videoRef}
-              src={urls.previewMedia(jobId)}
-              // Unmuted by the volume effect when the preview carries sound.
-              muted
-              playsInline
-              preload="auto"
-              onEnded={() => setPlaying(false)}
-              // Always full size; the corner preview is the same element scaled down from its
-              // bottom-left corner, so shrinking and growing back animate as exact reverses.
-              // Radius and ring are sized up to come out at ~6 px / 1 px after the 0.22 scale.
-              className={cn(
-                "absolute inset-0 size-full origin-bottom-left bg-black object-fill transition-all duration-300 ease-out",
-                view !== "overlay" &&
-                  "z-20 translate-x-3 -translate-y-3 scale-[0.22] rounded-[27px] opacity-90 shadow-2xl ring-[4px] ring-white/15",
-                // Hidden, not removed: the video keeps driving playback.
-                !showMedia && "invisible",
-              )}
-            />
-          ) : (
+          {!isVideo && (
             <img
               ref={imageRef}
               src={urls.previewMedia(jobId)}
