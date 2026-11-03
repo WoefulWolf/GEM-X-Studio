@@ -2,11 +2,12 @@
 
 import json
 import shutil
+import subprocess
 import time
 import uuid
 from pathlib import Path
 
-from .paths import INPUTS_DIR, media_kind
+from .paths import INPUTS_DIR, ffmpeg_executable, media_kind
 
 
 def _probe(path, kind, thumb):
@@ -131,3 +132,26 @@ def delete(input_id):
 def thumb_path(input_id):
     get(input_id)
     return INPUTS_DIR / input_id / "thumb.jpg"
+
+
+def frame_jpeg(record, index, *, max_height=720):
+    """One source frame as JPEG, cut the way GEM cuts clips (ffmpeg, accurate seek).
+
+    Seeking to half a frame before frame ``index`` makes ffmpeg's first output frame
+    exactly that frame, matching the start time Studio sends for a clip.
+    """
+    fps = record.get("fps") or 30.0
+    start = max(0.0, (index - 0.5) / fps)
+    result = subprocess.run(
+        [
+            ffmpeg_executable(), "-hide_banner", "-loglevel", "error", "-nostdin",
+            "-ss", f"{start:.6f}", "-i", str(record["path"]), "-frames:v", "1",
+            "-vf", f"scale=-2:'min({max_height},ih)'", "-q:v", "3",
+            "-f", "image2pipe", "-c:v", "mjpeg", "-",
+        ],
+        capture_output=True,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )  # fmt: skip
+    if result.returncode != 0 or not result.stdout:
+        raise ValueError(result.stderr.decode(errors="replace") or "No frame at that position")
+    return result.stdout

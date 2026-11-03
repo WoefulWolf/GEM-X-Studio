@@ -264,6 +264,17 @@ def create_app(*, port, native=False, dev=False, token=None):
     def input_media(input_id: str, request: Request):
         return _ranged(input_or_404(input_id)["path"], request)
 
+    @app.get("/api/inputs/{input_id}/frame")
+    def input_frame(input_id: str, index: int = 0, height: int = 720):
+        record = input_or_404(input_id)
+        if record["kind"] != "video":
+            raise HTTPException(400, "Not a video")
+        try:
+            data = inputs.frame_jpeg(record, max(0, index), max_height=min(max(height, 48), 1080))
+        except ValueError as error:
+            raise HTTPException(404, str(error)) from None
+        return Response(data, media_type="image/jpeg", headers={"Cache-Control": "max-age=86400"})
+
     @app.delete("/api/inputs/{input_id}")
     def delete_input(input_id: str):
         input_or_404(input_id)

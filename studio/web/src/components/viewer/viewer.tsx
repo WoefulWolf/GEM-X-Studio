@@ -41,6 +41,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { api, urls, type Preview, type PreviewFrame, type Variant } from "@/lib/api"
 import { formatTimecode } from "@/lib/format"
+import { MUTED_KEY, VOLUME_KEY, readStored, writeStored } from "@/lib/storage"
 import { cn } from "@/lib/utils"
 import { ViewerEngine, type ViewMode } from "./engine"
 import { MeshStore } from "./mesh-store"
@@ -130,8 +131,8 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(function Viewer(
   const [playing, setPlaying] = useState(false)
   const [loop, setLoop] = useState(true)
   const [rate, setRate] = useState("1")
-  const [volume, setVolume] = useState(() => readStored("gem-studio:volume", 0.8))
-  const [muted, setMuted] = useState(() => readStored("gem-studio:muted", false))
+  const [volume, setVolume] = useState(() => readStored(VOLUME_KEY, 0.8))
+  const [muted, setMuted] = useState(() => readStored(MUTED_KEY, false))
   const [view, setView] = useState<ViewMode>("overlay")
   const [showMesh, setShowMesh] = useState(true)
   const [showMedia, setShowMedia] = useState(true)
@@ -254,8 +255,8 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(function Viewer(
       video.volume = volume
       video.muted = muted || !preview.audio
     }
-    writeStored("gem-studio:volume", volume)
-    writeStored("gem-studio:muted", muted)
+    writeStored(VOLUME_KEY, volume)
+    writeStored(MUTED_KEY, muted)
   }, [volume, muted, preview.audio])
 
   const seek = useCallback(
@@ -610,24 +611,6 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(function Viewer(
     </div>
   )
 })
-
-/** Per-viewer preference; storage can be unavailable (private windows, blocked site data). */
-function readStored<T>(key: string, fallback: T): T {
-  try {
-    const value = localStorage.getItem(key)
-    return value == null ? fallback : (JSON.parse(value) as T)
-  } catch {
-    return fallback
-  }
-}
-
-function writeStored(key: string, value: unknown) {
-  try {
-    localStorage.setItem(key, JSON.stringify(value))
-  } catch {
-    // Not persisted; the setting still applies for this session.
-  }
-}
 
 function IconToggle(props: {
   label: string

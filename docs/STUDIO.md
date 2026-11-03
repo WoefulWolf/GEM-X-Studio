@@ -136,6 +136,14 @@ files are queued as separate runs.
 | Hand Pose | images, videos (framewise) | third-person (exo) or first-person (ego) view, left/right hands, temporal smoothing for ego video |
 | Body Motion | videos, up to 60 s per run | is the camera moving (fixed by default; moving uses background rotation estimates or ViPE); anchor to the camera; contact & IK refinement; clip range |
 
+**Clip (Body Motion).** With one video selected, the run panel shows the frames that
+will be analysed; **Change start/end** opens a card sized to the video for picking the
+exact first and last frame. Drag the green trim handles on the filmstrip, scrub the
+white playhead and press **Set start** / **Set end** (I / O), or type frame numbers and
+step one or ten frames. **Play** loops the selection with sound. The preview shows
+exactly the frame GEM will use: the start and duration Studio sends make GEM's cut
+begin and end on the chosen frames (sources that are not 30 fps are then resampled).
+
 **Runs.** Runs execute one at a time on the GPU, each in its own process, so a
 crash or cancel never takes the app down and GPU memory is released after each
 run. Progress, the current stage and the full log are shown live. Runs persist

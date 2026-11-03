@@ -9,6 +9,7 @@ import {
   Loader2,
   PersonStanding,
   Play,
+  Scissors,
   Trash2,
   Upload,
   X,
@@ -17,13 +18,13 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 
+import { ClipDialog, clipLimits, clipToSeconds, defaultClip, type ClipRange } from "@/components/clip-editor"
 import { PageHeader } from "@/components/logo"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Slider } from "@/components/ui/slider"
 import { Switch } from "@/components/ui/switch"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -138,6 +139,14 @@ export function NewRunPage() {
   const usable = chosen.filter((input) => spec.accepts.includes(input.kind))
   const skipped = chosen.length - usable.length
   const ready = models.data?.tasks[task]?.ready ?? false
+  // Body Motion on a single video: pick the exact frames to run on.
+  const clipInput = task === "body_motion" && usable.length === 1 && usable[0].kind === "video" ? usable[0] : null
+  const [clip, setClip] = useState<ClipRange | null>(null)
+  const clipKey = clipInput ? `${clipInput.id}:${clipInput.frame_count}:${clipInput.fps}` : ""
+  useEffect(() => {
+    setClip(clipInput ? defaultClip(clipInput) : null)
+    // Only a different video (or new metadata) resets the range.
+  }, [clipKey])
 
   return (
     <div
@@ -266,6 +275,9 @@ export function NewRunPage() {
             ready={ready}
             defaultDevice={settings.data?.device ?? "auto"}
             hasVipe={!!(settings.data?.vipe_executable || settings.data?.vipe_bundled)}
+            clipInput={clipInput}
+            clip={clipInput ? clip : null}
+            onClipChange={setClip}
             onDone={() => setSelected([])}
           />
         </aside>
@@ -400,6 +412,10 @@ function RunPanel(props: {
   ready: boolean
   defaultDevice: string
   hasVipe: boolean
+  /** Single Body Motion video and its exact frame range (picked in the Clip card). */
+  clipInput: InputRecord | null
+  clip: ClipRange | null
+  onClipChange: (value: ClipRange) => void
   onDone: () => void
 }) {
   const queryClient = useQueryClient()
@@ -410,17 +426,13 @@ function RunPanel(props: {
   const [cameraMode, setCameraMode] = useState<"background" | "static" | "vipe">("static")
   const [postprocess, setPostprocess] = useState(true)
   const [anchorWorld, setAnchorWorld] = useState(true)
-  const [range, setRange] = useState<[number, number] | null>(null)
+  const [clipOpen, setClipOpen] = useState(false)
   useEffect(() => {
     setDevice(props.defaultDevice)
   }, [props.defaultDevice])
 
   const single = props.inputs.length === 1 ? props.inputs[0] : null
   const motion = props.task === "body_motion"
-  const total = single?.duration ?? 0
-  useEffect(() => {
-    setRange(single && motion ? [0, Math.min(total, 60)] : null)
-  }, [single?.id, motion, total, single])
 
   const run = useMutation({
     mutationFn: async () => {
@@ -430,14 +442,16 @@ function RunPanel(props: {
         let kind: JobKind
         if (motion) {
           kind = "motion-video"
-          const start = range && single ? range[0] : 0
-          const length = range && single ? range[1] - range[0] : Math.min((input.duration ?? 60) - start, 60)
+          const { start, duration } =
+            props.clip && single
+              ? clipToSeconds(single, props.clip)
+              : { start: 0, duration: Math.min(input.duration ?? 60, 60) }
           Object.assign(options, {
             camera_mode: cameraMode,
             postprocess,
             anchor_world: cameraMode === "static" && anchorWorld,
             start,
-            duration: Math.max(0.5, Math.min(60, length)),
+            duration,
           })
         } else {
           kind = input.kind === "image" ? "pose-image" : "pose-video"
@@ -574,29 +588,34 @@ function RunPanel(props: {
             checked={postprocess}
             onChange={setPostprocess}
           />
-          {single && range && total > 0 && (
-            <Field label="Clip" hint="Motion runs on up to 60 seconds at a time (resampled to 30 fps).">
-              <Slider
-                min={0}
-                max={total}
-                step={0.1}
-                minStepsBetweenThumbs={5}
-                value={range}
-                onValueChange={(value) => {
-                  let [start, end] = value as [number, number]
-                  if (end - start > 60) {
-                    if (start !== range[0]) end = start + 60
-                    else start = end - 60
-                  }
-                  setRange([start, end])
-                }}
-                className="py-2"
-              />
-              <div className="flex justify-between text-[11px] text-muted-foreground tabular-nums">
-                <span>{formatDuration(range[0])}</span>
-                <span className="font-medium text-foreground">{formatDuration(range[1] - range[0])} selected</span>
-                <span>{formatDuration(range[1])}</span>
+          {props.clipInput && props.clip && (
+            <Field label="Clip">
+              <div className="flex items-center gap-3 rounded-lg border p-2">
+                <img
+                  src={urls.inputFrame(props.clipInput.id, props.clip[0], 96)}
+                  alt=""
+                  className="h-10 w-14 shrink-0 rounded object-cover"
+                />
+                <div className="min-w-0 flex-1 text-[11px] leading-snug tabular-nums">
+                  <div className="font-medium text-foreground">
+                    Frames {props.clip[0] + 1}–{props.clip[1] + 1}
+                  </div>
+                  <div className="text-muted-foreground">
+                    {((props.clip[1] - props.clip[0] + 1) / clipLimits(props.clipInput).fps).toFixed(2)} s of{" "}
+                    {(clipLimits(props.clipInput).count / clipLimits(props.clipInput).fps).toFixed(2)} s
+                  </div>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => setClipOpen(true)}>
+                  <Scissors /> Change start/end
+                </Button>
               </div>
+              <ClipDialog
+                input={props.clipInput}
+                value={props.clip}
+                onChange={props.onClipChange}
+                open={clipOpen}
+                onOpenChange={setClipOpen}
+              />
             </Field>
           )}
           {!single && props.inputs.some((input) => (input.duration ?? 0) > 60) && (

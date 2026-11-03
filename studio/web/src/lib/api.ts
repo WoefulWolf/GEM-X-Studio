@@ -348,6 +348,8 @@ export function uploadInput(file: File, onProgress?: (fraction: number) => void)
 export const urls = {
   inputThumb: (id: string) => `/api/inputs/${id}/thumb`,
   inputMedia: (id: string) => `/api/inputs/${id}/media`,
+  /** One exact source frame (JPEG), cut the way GEM cuts clips. */
+  inputFrame: (id: string, index: number, height = 720) => `/api/inputs/${id}/frame?index=${index}&height=${height}`,
   jobThumb: (id: string) => `/api/jobs/${id}/thumb`,
   previewMedia: (id: string) => `/api/jobs/${id}/preview/media`,
   mesh: (id: string, stream: string, start: number, count: number, variant: Variant = "raw") =>
