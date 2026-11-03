@@ -20,6 +20,9 @@ const CV_TO_GL = new THREE.Vector3(1, -1, -1)
 const CV_TO_GL_MATRIX = new THREE.Matrix3().set(1, 0, 0, 0, -1, 0, 0, 0, -1)
 const IDENTITY = new THREE.Matrix3()
 const DEFAULT_FOV = 40
+// Floor grid: metres across and cells (0.5 m each).
+const GRID_SIZE = 30
+const GRID_DIVISIONS = 60
 
 /** Pinhole projection matching OpenCV intrinsics on a W x H raster. */
 function intrinsicsProjection(K: number[][], width: number, height: number, near = 0.05, far = 200) {
@@ -143,7 +146,7 @@ export class ViewerEngine {
     this.shadowCatcher.receiveShadow = true
     this.shadowCatcher.renderOrder = 1
     this.scene.add(this.floorDisc, this.shadowCatcher)
-    this.grid = new THREE.GridHelper(20, 40, 0x5d6470, 0x3a3f48)
+    this.grid = new THREE.GridHelper(GRID_SIZE, GRID_DIVISIONS, 0x5d6470, 0x3a3f48)
     ;(this.grid.material as THREE.Material).transparent = true
     ;(this.grid.material as THREE.Material).opacity = 0.55
     this.scene.add(this.grid)
@@ -378,6 +381,7 @@ export class ViewerEngine {
       this.grid.visible = false
       this.floorDisc.visible = this.shadowCatcher.visible = false
       if (this.trajectory) this.trajectory.visible = false
+      if (this.cameraPath) this.cameraPath.visible = false
       if (this.frustum) this.frustum.visible = false
       this.scene.background = null
       this.renderer.render(this.scene, this.overlayCamera)
@@ -413,7 +417,14 @@ export class ViewerEngine {
     }
     if (ground != null) this.floor = ground
     this.grid.visible = true
-    this.grid.position.set(this.controls.target.x, (this.floor ?? 0) - 0.002, this.controls.target.z)
+    // Fixed in the world: the grid recentres near the view only in whole cells, so its lines
+    // never slide while orbiting or following.
+    const cell = GRID_SIZE / GRID_DIVISIONS
+    this.grid.position.set(
+      Math.round(this.controls.target.x / cell) * cell,
+      (this.floor ?? 0) - 0.002,
+      Math.round(this.controls.target.z / cell) * cell,
+    )
     this.floorDisc.visible = this.shadowCatcher.visible = true
     // Light from almost straight above the body, so the shadow sits right under the feet.
     const over = centroid ?? this.controls.target
@@ -421,10 +432,6 @@ export class ViewerEngine {
     this.shadowCatcher.position.copy(this.floorDisc.position)
     this.shadowLight.target.position.set(over.x, this.floor ?? 0, over.z)
     this.shadowLight.position.set(over.x + 0.35, (this.floor ?? 0) + 6, over.z + 0.6)
-    if (this.mode === "world") {
-      this.grid.position.x = Math.round(this.controls.target.x)
-      this.grid.position.z = Math.round(this.controls.target.z)
-    }
     // Looking through a moving camera, its own frustum and path would only clutter the frame edges.
     const throughCamera = moving && this.follow
     if (this.cameraPath) {
