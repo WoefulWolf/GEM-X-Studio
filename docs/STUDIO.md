@@ -122,8 +122,8 @@ across restarts.
 **Viewer.**
 
 - *Overlay*: the mesh drawn over the source frames with each frame's camera
-  intrinsics, so it lines up exactly. Toggle the mesh, 2D keypoints, opacity and
-  colour.
+  intrinsics, so it lines up exactly. Toggle the mesh, the source video (also the
+  small picture-in-picture in 3D and World), 2D keypoints, opacity and colour.
 - *3D*: camera-centred. The camera sits at the origin with its real tilt and
   field of view, shown as a frustum with a line down to the floor (its height),
   and the body appears exactly where it was relative to the lens. For Body

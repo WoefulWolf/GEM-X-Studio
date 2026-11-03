@@ -6,6 +6,8 @@ import {
   Eye,
   EyeOff,
   Globe2,
+  ImageIcon,
+  ImageOff,
   Loader2,
   Pause,
   Play,
@@ -13,6 +15,8 @@ import {
   ScanEye,
   SlidersHorizontal,
   Spline,
+  Video,
+  VideoOff,
 } from "lucide-react"
 import {
   forwardRef,
@@ -125,6 +129,7 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(function Viewer(
   const [rate, setRate] = useState("1")
   const [view, setView] = useState<ViewMode>("overlay")
   const [showMesh, setShowMesh] = useState(true)
+  const [showMedia, setShowMedia] = useState(true)
   const [showKeypoints, setShowKeypoints] = useState(false)
   const [opacity, setOpacity] = useState(0.85)
   const [color, setColor] = useState(MESH_COLORS[0])
@@ -280,7 +285,7 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(function Viewer(
     (target: HTMLCanvasElement, record: PreviewFrame | undefined) => {
       const engine = engineRef.current!
       const ctx = target.getContext("2d")!
-      if (view === "overlay") {
+      if (view === "overlay" && showMedia) {
         const media = (videoRef.current ?? imageRef.current) as CanvasImageSource
         ctx.drawImage(media, 0, 0, target.width, target.height)
       } else {
@@ -292,7 +297,7 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(function Viewer(
         drawKeypoints(ctx, record, target.width / imageWidth, target.height / imageHeight)
       }
     },
-    [view, showKeypoints, imageWidth, imageHeight],
+    [view, showMedia, showKeypoints, imageWidth, imageHeight],
   )
 
   useImperativeHandle(
@@ -382,6 +387,8 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(function Viewer(
                 view === "overlay"
                   ? "inset-0 size-full"
                   : "bottom-3 left-3 z-20 w-[22%] rounded-md opacity-90 shadow-2xl ring-1 ring-white/15",
+                // Hidden, not removed: the video keeps driving playback.
+                !showMedia && "invisible",
               )}
             />
           ) : (
@@ -389,7 +396,7 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(function Viewer(
               ref={imageRef}
               src={urls.previewMedia(jobId)}
               alt=""
-              className={cn("absolute inset-0 size-full object-fill", view !== "overlay" && "invisible")}
+              className={cn("absolute inset-0 size-full object-fill", (view !== "overlay" || !showMedia) && "invisible")}
             />
           )}
           <canvas ref={canvasRef} className="absolute inset-0 z-10 size-full" />
@@ -431,6 +438,14 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(function Viewer(
           <div className="col-start-2 row-start-1 flex items-center gap-1 justify-self-end rounded-lg @xl:col-start-3 bg-black/55 p-0.5 text-white backdrop-blur">
             <IconToggle label={showMesh ? "Hide mesh" : "Show mesh"} active={showMesh} onClick={() => setShowMesh(!showMesh)}>
               {showMesh ? <Eye /> : <EyeOff />}
+            </IconToggle>
+            <IconToggle
+              label={`${showMedia ? "Hide" : "Show"} source ${isVideo ? "video" : "image"}`}
+              active={showMedia}
+              onClick={() => setShowMedia(!showMedia)}
+              disabled={!isVideo && view !== "overlay"}
+            >
+              {isVideo ? showMedia ? <Video /> : <VideoOff /> : showMedia ? <ImageIcon /> : <ImageOff />}
             </IconToggle>
             {hasKeypoints && (
               <IconToggle
