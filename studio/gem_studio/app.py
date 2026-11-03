@@ -29,6 +29,7 @@ from .paths import (
     ensure_ffmpeg_on_path,
     python_executable,
 )
+from .preview import ensure_preview_audio
 
 DEFAULT_SETTINGS = {
     "device": "auto",
@@ -96,10 +97,15 @@ def _ranged(path, request, media_type=None):
 
 
 class RenderSession:
-    """Encode viewer frames (JPEG, posted one by one) into an H.264 MP4."""
+    """Encode viewer frames (JPEG, posted one by one) into an H.264 MP4.
 
-    def __init__(self, target, fps):
+    ``audio``: the preview video whose sound is laid under the frames (same timeline).
+    """
+
+    def __init__(self, target, fps, audio=None):
         self.target = Path(target)
+        self.fps = fps
+        self.audio = audio
         self.partial = self.target.with_name(self.target.name + ".part.mp4")
         self.target.parent.mkdir(parents=True, exist_ok=True)
         self.frames = 0
@@ -126,6 +132,22 @@ class RenderSession:
         if self.process.wait() != 0:
             self.partial.unlink(missing_ok=True)
             raise RuntimeError(error or "ffmpeg failed")
+        if self.audio is not None and self.frames:
+            with_sound = self.target.with_name(self.target.name + ".audio.part.mp4")
+            muxed = subprocess.run(
+                [
+                    "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
+                    "-i", str(self.partial), "-i", str(self.audio),
+                    "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "aac", "-b:a", "160k",
+                    "-t", f"{self.frames / self.fps:.6f}", "-movflags", "+faststart", str(with_sound),
+                ],
+                capture_output=True,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )  # fmt: skip
+            if muxed.returncode == 0:
+                os.replace(with_sound, self.partial)
+            else:
+                with_sound.unlink(missing_ok=True)  # keep the silent render rather than fail
         os.replace(self.partial, self.target)
         return self.target
 
@@ -329,6 +351,7 @@ def create_app(*, port, native=False, dev=False, token=None):
         path = variant_dir(job_id, variant) / "preview.json"
         if not path.is_file():
             raise HTTPException(404, "Preview not ready")
+        ensure_preview_audio(jobs.get(job_id), job_dir(job_id))
         return FileResponse(path, media_type="application/json")
 
     @app.get("/api/jobs/{job_id}/preview/media")
@@ -530,7 +553,10 @@ def create_app(*, port, native=False, dev=False, token=None):
         with render_lock:
             if job_id in renders:
                 renders.pop(job_id).abort()
-            renders[job_id] = RenderSession(target, float(payload.get("fps") or 30))
+            media = job_dir(job_id) / "preview" / "source.mp4"
+            info = json.loads((media.parent / "preview.json").read_text())
+            audio = media if info.get("audio") else None
+            renders[job_id] = RenderSession(target, float(payload.get("fps") or 30), audio=audio)
         return {"ok": True, "name": name}
 
     @app.post("/api/jobs/{job_id}/render/frame")

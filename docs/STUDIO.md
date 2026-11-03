@@ -136,7 +136,10 @@ across restarts.
   trajectory, opening on a three-quarter view from the subject's front. The view follows the subject until you orbit; the crosshair
   re-centres and resumes following.
 - Space plays/pauses, ←/→ step one frame (Shift for 10), with speed and loop
-  controls.
+  controls. Videos with sound play it, cut to the analysed clip; the volume
+  control next to loop (click the speaker to mute) is remembered. Runs made
+  before sound support get it the first time they are opened, as long as the
+  original video is still where it was.
 
 **Refine (Pose videos).** Framewise Body and Hand Pose can jitter from frame to
 frame. The *Refine* tab runs GEM's motion-adaptive smoother
@@ -211,7 +214,7 @@ one-click *Re-run as fixed camera*.
 | OBJ sequence | One OBJ per frame and track, zipped |
 | Current frame GLB / OBJ | The meshes on screen, Y-up metres |
 | Screenshot | PNG of the current view at source resolution |
-| Rendered video | H.264 MP4 of exactly what the viewer shows, rendered frame by frame |
+| Rendered video | H.264 MP4 of exactly what the viewer shows, rendered frame by frame, with the clip's sound |
 | `predictions.pt` / `.json` | The complete GEM result (identical to `gem-infer --output`) and a readable JSON of parameters, joints, 2D keypoints and boxes |
 | NumPy `.npz` | All vertices, faces and frame/slot mapping |
 

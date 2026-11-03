@@ -3,7 +3,8 @@
 Layout of ``JOB_DIR/preview``::
 
     preview.json            frames, instances, intrinsics, 2D keypoints
-    source.mp4|source.jpg   browser-playable media on the prediction timeline
+    source.mp4|source.jpg   browser-playable media on the prediction timeline, with the
+                            source's sound when it has any
     faces_<topology>.npy    int32 [F, 3]
     verts_<stream>.npy      float16 [S, V, 3], relative to offsets_<stream>
     offsets_<stream>.npy    float32 [S, 3] per-slot centroid (keeps fp16 precise)
@@ -15,7 +16,9 @@ world streams are Y-up metres.
 """
 
 import json
+import os
 import subprocess
+import threading
 from contextlib import nullcontext
 from pathlib import Path
 
@@ -87,17 +90,85 @@ def _ffmpeg(*args):
         check=True,
         capture_output=True,
         text=True,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
 
 
+AUDIO_CODEC = ("-c:a", "aac", "-b:a", "160k")
+
+
 def _browser_video(source, target):
-    """H.264 copy on the original frame timeline (no frame-rate conversion)."""
+    """H.264 copy on the original frame timeline (no frame-rate conversion), with sound."""
     _ffmpeg(
-        "-i", str(source), "-map", "0:v:0",
+        "-i", str(source), "-map", "0:v:0", "-map", "0:a:0?",
         "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2",
         "-fps_mode", "passthrough", "-c:v", "libx264", "-preset", "veryfast",
-        "-crf", "20", "-pix_fmt", "yuv420p", "-an", "-movflags", "+faststart", str(target),
+        "-crf", "20", "-pix_fmt", "yuv420p", *AUDIO_CODEC, "-movflags", "+faststart", str(target),
     )  # fmt: skip
+
+
+def has_audio(path):
+    """True when ffmpeg lists an audio stream in ``path``."""
+    probe = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-nostdin", "-i", str(path)],
+        capture_output=True,
+        text=True,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+    return " Audio:" in probe.stderr
+
+
+def add_audio(video, source, *, start=0.0, duration=None):
+    """Mux the first audio track of ``source`` into ``video`` (in place), cut to the clip.
+
+    GEM's 30 fps normalization drops sound; the clip starts ``start`` seconds into the
+    source. Returns whether ``video`` now has sound.
+    """
+    video = Path(video)
+    if not has_audio(source):
+        return False
+    partial = video.with_name(video.stem + ".audio.part.mp4")
+    limit = ("-t", f"{duration:.6f}") if duration else ()
+    try:
+        _ffmpeg(
+            "-i", str(video), "-ss", f"{start or 0.0:.6f}", "-i", str(source), *limit,
+            "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", *AUDIO_CODEC,
+            "-movflags", "+faststart", str(partial),
+        )  # fmt: skip
+        os.replace(partial, video)
+    finally:
+        partial.unlink(missing_ok=True)
+    return True
+
+
+_audio_lock = threading.Lock()
+
+
+def ensure_preview_audio(job, job_dir):
+    """Previews built before sound support get it once, the first time they are opened."""
+    raw = Path(job_dir) / "preview" / "preview.json"
+    with _audio_lock:
+        if not raw.is_file():
+            return
+        info = json.loads(raw.read_text())
+        if "audio" in info or info.get("media") != "source.mp4":
+            return
+        source = Path(job["input"]["path"])
+        options = job.get("options", {})
+        motion = job.get("kind") == "motion-video"
+        try:
+            audio = source.is_file() and add_audio(
+                raw.parent / "source.mp4",
+                source,
+                start=float(options.get("start") or 0.0) if motion else 0.0,
+                duration=options.get("duration") if motion else None,
+            )
+        except (OSError, subprocess.CalledProcessError):
+            return  # e.g. the video is open in the player; try again next time
+        for path in (raw, Path(job_dir) / "refined" / "preview.json"):
+            if path.is_file():
+                data = json.loads(path.read_text())
+                path.write_text(json.dumps({**data, "audio": audio}))
 
 
 def _browser_image(source, target):
@@ -299,9 +370,10 @@ def build_preview(job, prediction_path, job_dir, *, progress=None, stage=None, n
                 progress=progress,
                 stage=stage,
             )
-        info["media"] = json.loads((Path(job_dir) / "preview" / "preview.json").read_text())[
-            "media"
-        ]
+        raw = json.loads((Path(job_dir) / "preview" / "preview.json").read_text())
+        info["media"] = raw["media"]
+        if "audio" in raw:
+            info["audio"] = raw["audio"]
         (directory / "preview.json").write_text(json.dumps(info))
         return info
     if saved.get("format") == "gem_pose_predictions_v1":
@@ -314,6 +386,7 @@ def build_preview(job, prediction_path, job_dir, *, progress=None, stage=None, n
                 stage("Preparing preview video")
             _browser_video(source, directory / "source.mp4")
             info["media"] = "source.mp4"
+            info["audio"] = has_audio(directory / "source.mp4")
     else:
         device = resolve_device(job.get("options", {}).get("device"))
         info = build_motion_preview(
@@ -327,6 +400,12 @@ def build_preview(job, prediction_path, job_dir, *, progress=None, stage=None, n
         normalize_video(
             source,
             directory / "source.mp4",
+            start=clip["requested_start"],
+            duration=clip["selected_duration"],
+        )
+        info["audio"] = add_audio(
+            directory / "source.mp4",
+            source,
             start=clip["requested_start"],
             duration=clip["selected_duration"],
         )

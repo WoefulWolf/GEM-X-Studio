@@ -17,6 +17,9 @@ import {
   Spline,
   Video,
   VideoOff,
+  Volume1,
+  Volume2,
+  VolumeX,
 } from "lucide-react"
 import {
   forwardRef,
@@ -127,6 +130,8 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(function Viewer(
   const [playing, setPlaying] = useState(false)
   const [loop, setLoop] = useState(true)
   const [rate, setRate] = useState("1")
+  const [volume, setVolume] = useState(() => readStored("gem-studio:volume", 0.8))
+  const [muted, setMuted] = useState(() => readStored("gem-studio:muted", false))
   const [view, setView] = useState<ViewMode>("overlay")
   const [showMesh, setShowMesh] = useState(true)
   const [showMedia, setShowMedia] = useState(true)
@@ -242,6 +247,16 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(function Viewer(
   useEffect(() => {
     if (videoRef.current) videoRef.current.loop = loop
   }, [loop])
+
+  useEffect(() => {
+    const video = videoRef.current
+    if (video) {
+      video.volume = volume
+      video.muted = muted || !preview.audio
+    }
+    writeStored("gem-studio:volume", volume)
+    writeStored("gem-studio:muted", muted)
+  }, [volume, muted, preview.audio])
 
   const seek = useCallback(
     (target: number) => {
@@ -378,6 +393,7 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(function Viewer(
             <video
               ref={videoRef}
               src={urls.previewMedia(jobId)}
+              // Unmuted by the volume effect when the preview carries sound.
               muted
               playsInline
               preload="auto"
@@ -545,6 +561,35 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(function Viewer(
               seek(value)
             }}
           />
+          {preview.audio && (
+            <div className="flex shrink-0 items-center gap-1.5">
+              <IconToggle
+                label={muted ? "Unmute" : "Mute"}
+                active={!muted && volume > 0}
+                onClick={() => {
+                  if (muted || volume === 0) {
+                    setMuted(false)
+                    if (volume === 0) setVolume(0.5)
+                  } else setMuted(true)
+                }}
+                plain
+              >
+                {muted || volume === 0 ? <VolumeX /> : volume < 0.5 ? <Volume1 /> : <Volume2 />}
+              </IconToggle>
+              <Slider
+                aria-label="Volume"
+                className="w-20"
+                min={0}
+                max={1}
+                step={0.01}
+                value={[muted ? 0 : volume]}
+                onValueChange={([value]) => {
+                  setVolume(value)
+                  setMuted(value === 0)
+                }}
+              />
+            </div>
+          )}
           <IconToggle label="Loop" active={loop} onClick={() => setLoop(!loop)} plain>
             <Repeat />
           </IconToggle>
@@ -565,6 +610,24 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(function Viewer(
     </div>
   )
 })
+
+/** Per-viewer preference; storage can be unavailable (private windows, blocked site data). */
+function readStored<T>(key: string, fallback: T): T {
+  try {
+    const value = localStorage.getItem(key)
+    return value == null ? fallback : (JSON.parse(value) as T)
+  } catch {
+    return fallback
+  }
+}
+
+function writeStored(key: string, value: unknown) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value))
+  } catch {
+    // Not persisted; the setting still applies for this session.
+  }
+}
 
 function IconToggle(props: {
   label: string

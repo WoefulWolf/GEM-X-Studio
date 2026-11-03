@@ -233,6 +233,8 @@ export interface Preview {
   facing?: number[][]
   views: string[]
   media: string
+  /** The video carries the source's sound. */
+  audio?: boolean
 }
 
 function meta(name: string) {
