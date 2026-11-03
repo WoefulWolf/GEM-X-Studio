@@ -70,6 +70,10 @@ export interface RefineOptions {
   /** Motion: manual extra lean toward (+) / away from (-) the camera, and sideways (+ right). */
   tilt_deg?: number
   roll_deg?: number
+  /** Motion: smoothing width (30 fps frames) of the distance to the camera only; 0 = off. */
+  depth_smoothing?: number
+  /** Motion: cancel horizontal sliding of planted feet. */
+  lock_feet?: boolean
 }
 
 export interface RefineReport {
@@ -82,6 +86,8 @@ export interface RefineReport {
     sideways_deg?: number
     applied_deg?: number
   }
+  depth?: { sigma_frames: number; depth_jitter_removed_cm: number }
+  lock_feet?: { planted_slide_mm_per_frame_before: number; max_root_shift_cm: number }
   plant_feet?: {
     planted_height_error_cm_before: number
     planted_height_error_cm_after: number

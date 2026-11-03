@@ -188,6 +188,8 @@ MOTION_DEFAULTS = {
     "level": "auto",  # "auto": level the world on the planted-feet floor plane (balance fallback); "off"
     "tilt_deg": 0.0,  # manual extra tilt toward (+) / away from (-) the camera
     "roll_deg": 0.0,  # manual extra sideways tilt
+    "depth_smoothing": 4.0,  # Gaussian width (30 fps frames) on distance-to-camera only; 0 = off
+    "lock_feet": True,  # cancel horizontal sliding of planted feet by moving the root
 }
 
 # 77-joint indices: contact joints (ankle, ball) and the non-finger joints used as a COM proxy.
@@ -233,6 +235,67 @@ def smooth_motion_params(params, times, config):
                 dtype=params[name].dtype,
             )
     return out
+
+
+def stabilize_depth(camera, sigma_frames):
+    """Smooth only the distance to the camera, keeping each frame's image position.
+
+    Monocular depth is the weakest-observed quantity: the root jitters along the
+    line of sight while its image position is pinned by the pixels. The camera-
+    space translation is moved along its own viewing ray to a temporally smoothed
+    depth, so the projection (and the overlay) is unchanged.
+    """
+    from scipy.ndimage import gaussian_filter1d
+
+    if sigma_frames <= 0:
+        return camera, None
+    transl = camera["transl"][0].double().cpu().numpy()
+    depth = transl[:, 2]
+    smoothed = gaussian_filter1d(depth, float(sigma_frames), mode="nearest")
+    scale = smoothed / np.where(np.abs(depth) > 1e-6, depth, 1e-6)
+    out = {name: value.clone() for name, value in camera.items()}
+    out["transl"][0] = torch.as_tensor(transl * scale[:, None], dtype=camera["transl"].dtype)
+    residual = depth - smoothed
+    return out, {
+        "sigma_frames": float(sigma_frames),
+        "depth_jitter_removed_cm": round(float(np.std(residual)) * 100, 2),
+    }
+
+
+def lock_feet(world, conf, *, threshold, soma_assets, device, window_frames=30, ease_frames=2.0):
+    """Stop planted feet from sliding horizontally by shifting the root.
+
+    Each frame, the confidence-weighted horizontal motion of contact joints that
+    are planted in both this and the previous frame is subtracted from the root.
+    The accumulated offset is eased over ``ease_frames`` (no jolts when a contact
+    starts or ends) and high-pass filtered (``window_frames``) so it only
+    removes short-term skating and never pulls the motion away from its
+    (anchored) long-term position. Limbs are unchanged.
+    """
+    from scipy.ndimage import gaussian_filter1d
+
+    joints = _joints(world, soma_assets=soma_assets, device=device)
+    planted = conf > threshold
+    held = (planted[1:] & planted[:-1]) * conf[1:]
+    step = np.diff(joints[:, list(CONTACT_JOINTS)][..., [0, 2]], axis=0)  # [T-1, 4, (x, z)]
+    weight = held.sum(axis=1)
+    slide = np.where(
+        weight[:, None] > 0,
+        (step * held[..., None]).sum(axis=1) / np.maximum(weight, 1e-9)[:, None],
+        0.0,
+    )
+    offset = np.concatenate([np.zeros((1, 2)), -np.cumsum(slide, axis=0)])
+    # Ease corrections in/out at contact changes, then keep only the short-term part.
+    offset = gaussian_filter1d(offset, ease_frames, axis=0, mode="nearest")
+    offset -= gaussian_filter1d(offset, window_frames, axis=0, mode="nearest")
+    out = {name: value.clone() for name, value in world.items()}
+    out["transl"][0, :, 0] += torch.as_tensor(offset[:, 0], dtype=world["transl"].dtype)
+    out["transl"][0, :, 2] += torch.as_tensor(offset[:, 1], dtype=world["transl"].dtype)
+    before = np.linalg.norm(step, axis=-1)[held > 0].mean() if (held > 0).any() else 0.0
+    return out, {
+        "planted_slide_mm_per_frame_before": round(float(before) * 1000, 2),
+        "max_root_shift_cm": round(float(np.abs(offset).max()) * 100, 2),
+    }
 
 
 def _rotate_params(source, template, rotation):
@@ -565,6 +628,17 @@ def refine_motion(result, options, *, soma_assets, device, progress=None, stage=
         config = smoothing_config(options)
         camera = smooth_motion_params(camera, times, config)
         world = smooth_motion_params(world, times, config)
+    if float(options["depth_smoothing"]) > 0:
+        say("Stabilizing depth", f"{options['depth_smoothing']} frames")
+        stabilized, report["depth"] = stabilize_depth(camera, float(options["depth_smoothing"]))
+        if options["world"] != "anchor":
+            # GEM-world mode: carry the same camera-space change into the world.
+            delta = (stabilized["transl"][0] - camera["transl"][0]).double().cpu().numpy()
+            world = {name: value.clone() for name, value in world.items()}
+            world["transl"][0] += torch.as_tensor(
+                delta @ gem_camera_to_world(result).T, dtype=world["transl"].dtype
+            )
+        camera = stabilized
     threshold = float(options["contact_threshold"])
     conf = (
         torch.as_tensor(logits)[0, :, :FOOT_CONTACTS].float().sigmoid().cpu().numpy()
@@ -605,6 +679,11 @@ def refine_motion(result, options, *, soma_assets, device, progress=None, stage=
     world, report["floor"] = _place(
         source, world, rotation, planted, soma_assets=soma_assets, device=device, progress=progress
     )
+    if options["lock_feet"] and logits is not None:
+        say("Locking planted feet")
+        world, report["lock_feet"] = lock_feet(
+            world, conf, threshold=threshold, soma_assets=soma_assets, device=device
+        )
     if options["plant_feet"] and logits is not None:
         say("Planting feet (hip height + leg IK)")
         world, camera, report["plant_feet"] = plant_feet(

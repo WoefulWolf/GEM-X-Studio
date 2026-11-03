@@ -827,6 +827,8 @@ const MOTION_DEFAULTS: RefineOptions = {
   level: "auto",
   tilt_deg: 0,
   roll_deg: 0,
+  depth_smoothing: 4,
+  lock_feet: true,
 }
 
 const signed = (value: number, unit: string) => `${value > 0 ? "+" : ""}${value.toFixed(1)}${unit}`
@@ -881,6 +883,38 @@ function MotionRefinePanel({ job, onRefined }: { job: Job; onRefined: () => void
             </span>
           )}
         </p>
+      </PanelSection>
+
+      <PanelSection
+        id="refine-stability"
+        title="Stability"
+        summary={[
+          options.depth_smoothing ? `Depth ${options.depth_smoothing.toFixed(1)} frames` : "Depth off",
+          options.lock_feet ? "feet locked" : "feet free",
+        ].join(" · ")}
+      >
+        <RangeField
+          label="Depth stabilization"
+          value={options.depth_smoothing ?? 0}
+          display={options.depth_smoothing ? `${options.depth_smoothing.toFixed(1)} frames` : "Off"}
+          min={0}
+          max={10}
+          step={0.5}
+          left="Off"
+          right="Strong"
+          onChange={(depth_smoothing) => set({ depth_smoothing })}
+        />
+        <p className="-mt-2 text-[11px] leading-relaxed text-muted-foreground">
+          A single camera judges distance far less precisely than position, so the body wobbles toward and away from
+          the camera. This smooths only that distance, along each frame&apos;s line of sight, so the overlay still
+          lines up.
+        </p>
+        <SwitchField
+          label="Stop foot sliding"
+          hint="Keeps planted feet in place by moving the body; turn off for gliding footwork"
+          checked={!!options.lock_feet}
+          onChange={(lock_feet) => set({ lock_feet })}
+        />
       </PanelSection>
 
       <PanelSection
@@ -1009,6 +1043,8 @@ function MotionRefinePanel({ job, onRefined }: { job: Job; onRefined: () => void
                 report.level.method === "floor_plane" ? "floor plane" : "body balance"
               }`}
             {report.floor === "foot_contact_median" ? " · floor from foot contacts" : " · floor from lowest points"}
+            {report.depth && ` · ${report.depth.depth_jitter_removed_cm} cm of depth jitter removed`}
+            {report.lock_feet && " · feet locked"}
             {plant && (
               <>
                 {" "}

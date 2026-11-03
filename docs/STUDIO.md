@@ -136,6 +136,16 @@ footwork. Motion's Refine tab offers:
   camera) places the camera-space motion in the world under one rotation, GEM's
   own gravity estimate averaged over the clip. It is exact for a still camera and
   has no drift. **GEM world** keeps GEM's integrated motion, for moving cameras.
+- *Stability*: a single camera judges distance far less precisely than
+  position, so the body wobbles toward and away from the camera, most visible
+  from the side. *Depth stabilization* (default 4 frames) smooths only the
+  distance to the camera, moving each frame along its own line of sight so the
+  overlay still lines up. *Stop foot sliding* (on by default) keeps planted feet
+  in place by shifting the body; the correction is eased in and short-term
+  only, so it never pulls the motion away from its anchored position. Turn it
+  off for deliberately gliding footwork. On the test dance clip, depth jitter
+  fell from 3.4 cm to 1.2 cm (the same as sideways), root acceleration along
+  depth by about 12×, and planted-foot sliding from 7.3 to 2.9 mm per frame.
 - *Auto-level on the floor* (on by default): GEM can misjudge the camera's
   pitch, for example a low phone tilted upward, which leaves the world tilted
   so the body appears to lean back from the side and feet float as they step

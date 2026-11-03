@@ -367,6 +367,8 @@ def create_app(*, port, native=False, dev=False, token=None):
             "level",
             "tilt_deg",
             "roll_deg",
+            "depth_smoothing",
+            "lock_feet",
         }
         try:
             return jobs.refine(job_id, {k: v for k, v in options.items() if k in allowed})
