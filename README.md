@@ -1,3 +1,118 @@
+<p align="center">
+  <img src="studio/gem_studio/icon.png" width="96" alt="GEM-X Studio icon">
+</p>
+
+<h1 align="center">GEM-X Studio</h1>
+
+<p align="center">
+  <em>Turn videos into 3D body, hand and motion capture on your own PC, then refine it and export it to Blender, game engines or MikuMikuDance.</em><br>
+  A one-click Windows installer and desktop app for <a href="https://github.com/NVlabs/GEM-X">NVIDIA GEM-X</a>.
+</p>
+
+<p align="center">
+  <a href="#studio-install"><img src="https://img.shields.io/badge/Windows-one--click_install-0078d4" alt="One-click Windows install"></a>
+  <a href="#studio-exports"><img src="https://img.shields.io/badge/Export-glTF%20%C2%B7%20FBX%20%C2%B7%20MMD%20VMD-76b900" alt="Exports glTF, FBX and MMD VMD"></a>
+  <a href="https://github.com/NVlabs/GEM-X"><img src="https://img.shields.io/badge/Fork_of-NVlabs%2FGEM--X-555" alt="Fork of NVlabs/GEM-X"></a>
+  <a href="#license"><img src="https://img.shields.io/badge/License-Apache_2.0_%2B_exceptions-green" alt="Apache 2.0 with per-file license exceptions"></a>
+</p>
+
+<p align="center">
+  <a href="#studio-install">Install</a> ·
+  <a href="#studio-features">Features</a> ·
+  <a href="#studio-exports">Exports</a> ·
+  <a href="#studio-tips">Tips</a> ·
+  <a href="docs/STUDIO.md">Full Studio guide</a> ·
+  <a href="#original-readme">Original GEM-X README</a>
+</p>
+
+---
+
+<a id="studio-install"></a>
+
+## Install (Windows)
+
+1. Download or clone this repository.
+2. Double-click **`install.bat`**. It sets everything up inside the repository folder:
+   a private Python 3.12, PyTorch 2.10 for your NVIDIA driver, GEM-X, GPU detectors,
+   FFmpeg and the app itself. Nothing is installed system-wide, and you do not need
+   Python, Node.js or FFmpeg beforehand.
+3. Pick which models to download when asked, or skip and use the **Models** page later.
+4. Start **GEM-X Studio** from the Desktop or Start Menu shortcut (or `studio.bat`).
+
+**You need:** 64-bit Windows 10 or 11, an internet connection and, for usable speed, an
+NVIDIA GPU with a recent driver (CUDA 12.6 or newer) and about 7 GB of free VRAM for Body
+Motion. **Disk:** about 8 GB for Body Pose, 12 GB with Body Motion and 24 GB with every
+model, including the 4 GB Python environment. Re-running `install.bat` is safe and also
+serves as an updater after `git pull`.
+
+<a id="studio-features"></a>
+
+## Features
+
+- **Three GEM-X models in one app:** Body Pose (images and video), Hand Pose (left and
+  right hands, images and video) and Body Motion (temporal, world-space motion from
+  video, up to 60 seconds per run).
+- **Drop in your media** and runs are queued on the GPU one at a time, each in its own
+  process, with live progress and logs. Everything is kept for later.
+- **Interactive viewer:**
+  - *Overlay*: the mesh drawn exactly over the video, with optional 2D keypoints.
+  - *3D*: look through the original camera, then orbit; the camera's tilt and
+    height are shown.
+  - *World*: gravity-aligned motion on a floor, with its trajectory.
+- **Refine without re-running:**
+  - Temporal smoothing for Pose videos.
+  - For Body Motion:
+    - Anchor the motion to a fixed camera, so there is no drift.
+    - Auto-level the world on the floor (fixes cameras tilted up or down).
+    - Plant the feet flat on the ground.
+    - Adjust the floor height and lean by hand.
+- **Models page** with one-click downloads, and a native app window (Edge WebView2),
+  or run it in your browser with `studio.bat --browser`.
+
+<a id="studio-exports"></a>
+
+## Exports
+
+| Export | For |
+| --- | --- |
+| Skinned skeleton **glTF** (written natively) and **FBX** (via a local Blender) | Blender, Unity, Unreal, Maya, three.js; bone names *Standard* or *MMD* |
+| **VMD** motion | MikuMikuDance and other MMD tools, retargeted to standard MMD bones including fingers |
+| Shape-key glTF / FBX, point cache (PC2), OBJ sequence, NumPy | The exact per-frame mesh |
+| MP4 render, PNG screenshot | Exactly what the viewer shows |
+| `predictions.pt` / JSON | The full GEM-X result, as produced by `gem-infer` |
+
+<a id="studio-tips"></a>
+
+## Tips
+
+- **Body Motion:** answer *"Is the camera moving?"* honestly. For a tripod or phone on a
+  stand, keep **No, fixed**: Studio then anchors the motion in place and levels it on the
+  floor automatically.
+- **Character animation:** use Body Motion, which is smooth, moves through the world and
+  has foot contact. Pose is best for single images, hands and clips longer than 60 seconds.
+- **MMD:** set *Model arm angle* to your model's rest pose (most MMD models are 30–40°,
+  T-pose models 0°).
+- **FBX** needs [Blender](https://www.blender.org/download/) (free). Studio finds it
+  automatically, or set its path in Settings.
+
+Everything else, including options, folders and development setup, is in the
+**[GEM-X Studio guide](docs/STUDIO.md)**.
+
+## Credits
+
+GEM-X, its models and weights are by NVIDIA; see the original README below and the
+[license](#license). GEM-X Studio adds the installer and app on top, leaving the model code
+unchanged. This fork has mostly been developed and maintained with AI assistance; see
+[About this fork](#about-this-fork).
+
+---
+
+<a id="original-readme"></a>
+
+> **The original GEM-X README follows**, unchanged except for small additions that
+> point to Studio.
+
+
 <h1 align="center">GEM-X: Full-Body and Hand Pose Estimation from Image and Video</h1>
 
 <p align="center">
