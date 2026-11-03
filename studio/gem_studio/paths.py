@@ -52,6 +52,9 @@ if PORTABLE:
     # Model files go straight to weights/; the Xet chunk cache would only keep a second copy.
     os.environ.setdefault("HF_XET_CHUNK_CACHE_SIZE_BYTES", "0")
 
+# Optional ViPE (moving-camera Body Motion) in its own environment: install.bat -Vipe.
+VIPE_VENV = REPO_ROOT / ".venv-vipe"
+
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v", ".mpg", ".mpeg", ".wmv"}
 MEDIA_FILE_TYPES = (
@@ -113,6 +116,26 @@ def python_executable():
     if executable.name.lower() == "pythonw.exe" and console.is_file():
         return str(console)
     return sys.executable
+
+
+def bundled_vipe():
+    """The ViPE executable set up by the installer, or None."""
+    executable = VIPE_VENV / ("Scripts/vipe.exe" if sys.platform == "win32" else "bin/vipe")
+    return str(executable) if executable.is_file() else None
+
+
+def vipe_pipeline(executable):
+    """ViPE pipeline for an install, or None for GEM's default (pose_only_long).
+
+    pose_only_long's long-sequence pose graph needs gtsam, which has no Windows build;
+    pose_only tracks the same camera without it. Unknown layouts keep the default.
+    """
+    environment = Path(executable).resolve().parent.parent
+    if not (environment / "pyvenv.cfg").is_file():
+        return None
+    gtsam = [environment / "Lib" / "site-packages" / "gtsam"]
+    gtsam += environment.glob("lib/python3*/site-packages/gtsam")
+    return None if any(path.is_dir() for path in gtsam) else "pose_only"
 
 
 def media_kind(path):

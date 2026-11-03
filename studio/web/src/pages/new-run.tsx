@@ -265,7 +265,7 @@ export function NewRunPage() {
             skipped={skipped}
             ready={ready}
             defaultDevice={settings.data?.device ?? "auto"}
-            hasVipe={!!settings.data?.vipe_executable}
+            hasVipe={!!(settings.data?.vipe_executable || settings.data?.vipe_bundled)}
             onDone={() => setSelected([])}
           />
         </aside>
@@ -528,7 +528,7 @@ function RunPanel(props: {
               cameraMode === "static"
                 ? "Tripod, phone on a stand, or any shot that doesn't pan or tilt. Best for in-place motion."
                 : cameraMode === "vipe"
-                  ? "Full camera tracking with your ViPE install (Settings)."
+                  ? "Full camera tracking with ViPE: for handheld, panning or following shots."
                   : "Estimates camera rotation from background detail. Needs a textured background; plain walls can make the person drift."
             }
           >
@@ -554,7 +554,7 @@ function RunPanel(props: {
                 <SelectContent>
                   <SelectItem value="background">Estimate rotation from background</SelectItem>
                   <SelectItem value="vipe" disabled={!props.hasVipe}>
-                    Full camera tracking (ViPE){props.hasVipe ? "" : " - set up in Settings"}
+                    Full camera tracking (ViPE){props.hasVipe ? "" : " - add with install.bat -Vipe"}
                   </SelectItem>
                 </SelectContent>
               </Select>

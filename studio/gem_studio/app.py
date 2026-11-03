@@ -25,9 +25,11 @@ from .jobs import JobManager, job_files
 from .paths import (
     SETTINGS_FILE,
     STATIC_DIR,
+    bundled_vipe,
     ensure_dirs,
     ensure_ffmpeg_on_path,
     python_executable,
+    vipe_pipeline,
 )
 from .preview import ensure_preview_audio
 
@@ -200,14 +202,14 @@ def create_app(*, port, native=False, dev=False, token=None):
 
     @app.get("/api/settings")
     def get_settings():
-        return load_settings()
+        return {**load_settings(), "vipe_bundled": bundled_vipe()}
 
     @app.put("/api/settings")
     def put_settings(values: dict = Body(...)):
         settings = {**load_settings(), **{k: v for k, v in values.items() if k in DEFAULT_SETTINGS}}
         SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
         SETTINGS_FILE.write_text(json.dumps(settings, indent=2))
-        return settings
+        return {**settings, "vipe_bundled": bundled_vipe()}
 
     # -- models ------------------------------------------------------------
     @app.get("/api/models")
@@ -289,8 +291,11 @@ def create_app(*, port, native=False, dev=False, token=None):
         options = dict(payload.get("options") or {})
         settings = load_settings()
         options.setdefault("device", settings["device"])
-        if settings.get("vipe_executable"):
-            options.setdefault("vipe_executable", settings["vipe_executable"])
+        vipe = settings.get("vipe_executable") or bundled_vipe()
+        if vipe:
+            options.setdefault("vipe_executable", vipe)
+            if vipe_pipeline(vipe):
+                options.setdefault("vipe_pipeline", vipe_pipeline(vipe))
         created = []
         for input_id in payload.get("input_ids", []):
             record = input_or_404(input_id)

@@ -1,3 +1,6 @@
 # Windows scripts must keep CRLF line endings when cloned anywhere.
 *.bat text eol=crlf
 *.ps1 text eol=crlf
+
+# Applied with git apply; keep LF.
+scripts/windows/vipe/*.patch eol=lf

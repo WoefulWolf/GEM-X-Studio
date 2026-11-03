@@ -13,7 +13,7 @@ foreach ($place in @([Environment]::GetFolderPath('Desktop'), [Environment]::Get
     $link = Join-Path $place 'GEM-X Studio.lnk'
     if (Test-Path $link) { Remove-Item $link; Write-Host "Removed $link" }
 }
-foreach ($name in @('.venv', '.tools', 'studio\web\node_modules', 'studio\gem_studio\static')) {
+foreach ($name in @('.venv', '.venv-vipe', '.tools', 'studio\web\node_modules', 'studio\gem_studio\static')) {
     $path = Join-Path $Root $name
     if (Test-Path $path) { Remove-Item -Recurse -Force $path; Write-Host "Removed $path" }
 }

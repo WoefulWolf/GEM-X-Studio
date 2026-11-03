@@ -124,6 +124,8 @@ def build_argv(job, output):
         argv += ["--camera-mode", options.get("camera_mode") or "background"]
         if options.get("camera_mode") == "vipe" and options.get("vipe_executable"):
             argv += ["--vipe-executable", options["vipe_executable"]]
+            if options.get("vipe_pipeline"):
+                argv += ["--vipe-pipeline", options["vipe_pipeline"]]
         if options.get("start"):
             argv += ["--start", str(float(options["start"]))]
         if options.get("duration"):

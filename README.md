@@ -45,6 +45,10 @@ and are emptied when the installer finishes. The caches Studio writes while it r
 and its window profile, stay in `.tools` too. Only the shortcuts are created elsewhere;
 add `-NoShortcut` to skip them.
 
+Filming with a moving camera? Answer **yes** to *Install ViPE?* (or run
+`install.bat -Vipe`) to add [ViPE](https://github.com/nv-tlabs/vipe) camera tracking
+for Body Motion (about 4 GB, plus 3 GB of models on first use).
+
 **You need:** 64-bit Windows 10 or 11, an internet connection and, for usable speed, an
 NVIDIA GPU with a recent driver (CUDA 12.6 or newer) and about 7 GB of free VRAM for Body
 Motion. **Disk:** about 8 GB for Body Pose, 12 GB with Body Motion and 24 GB with every

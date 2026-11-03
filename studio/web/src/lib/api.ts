@@ -185,6 +185,8 @@ export interface SystemInfo {
 export interface Settings {
   device: string
   vipe_executable: string
+  /** ViPE installed by install.bat -Vipe (.venv-vipe); used when vipe_executable is empty. */
+  vipe_bundled?: string | null
   blender_executable: string
   theme: string
 }

@@ -27,6 +27,12 @@ gem-render --task body --input motion.pt --soma-assets assets/soma \
 
 ## Install ViPE separately
 
+On Windows, GEM-X Studio's installer can do this for you: `install.bat -Vipe`
+sets up a prebuilt ViPE in `.venv-vipe` and Studio passes the executable and
+`--vipe-pipeline pose_only` automatically (see the
+[Studio guide](STUDIO.md#vipe-moving-cameras)). The steps below are the upstream
+installation for Linux or your own environment.
+
 Follow the official [ViPE installation instructions](https://github.com/nv-tlabs/vipe/blob/main/docs/installation.md)
 in a separate environment. ViPE builds native CUDA extensions and requires
 CUDA-enabled PyTorch and a CUDA toolkit with `nvcc`. Keeping its environment

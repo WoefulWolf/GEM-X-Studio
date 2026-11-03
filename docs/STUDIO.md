@@ -49,6 +49,7 @@ install.bat -Torch cpu                           :: force a PyTorch build (auto,
 install.bat -NoShortcut                          :: skip Desktop / Start Menu shortcuts
 install.bat -Portable                            :: keep every cache inside the folder (see below)
 install.bat -Portable -KeepCache                 :: ...but keep the download caches for faster reinstalls
+install.bat -Vipe                                :: add ViPE camera tracking for moving cameras (see below)
 install.bat -Help                                :: all options
 ```
 
@@ -75,6 +76,27 @@ The choice is stored in `.tools\portable`: Studio reads it at startup, and later
 shared caches. Settings → Locations shows which mode is active. The only
 files a portable install places elsewhere are the shortcuts; add `-NoShortcut` to
 skip them.
+
+### ViPE (moving cameras)
+
+[ViPE](https://github.com/nv-tlabs/vipe) estimates a moving camera (handheld,
+panning, following shots) for Body Motion. Answer **yes** to *Install ViPE?*, or
+run `install.bat -Vipe`, to add it in its own environment, `.venv-vipe` (about
+4 GB; ViPE needs `transformers` 4 while Studio uses 5). Studio finds it
+automatically: *Full camera tracking (ViPE)* becomes available on New run, and
+Settings shows which ViPE is in use. Fixed-camera clips don't need it.
+
+- It needs an NVIDIA driver with CUDA 13 (driver 580 or newer).
+- The first run downloads about 3 GB of ViPE models (GroundingDINO, SAM, MoGe-2,
+  GeoCalib, DROID-SLAM), which takes several minutes; later runs start right away.
+  With a portable install they are kept in `.tools\cache`.
+- ViPE is published as source code that compiles CUDA extensions while it
+  installs, and one of its libraries (gtsam) has no Windows build. The installer
+  therefore uses a prebuilt Windows package, made with
+  `scripts\windows\vipe\build_wheel.ps1` (ViPE plus `windows.patch`, compiled
+  against Studio's PyTorch 2.10 / CUDA 13.0). Without gtsam, Studio runs ViPE's
+  `pose_only` pipeline instead of GEM's default `pose_only_long`; GPU memory
+  grows with clip length, so very long clips need more VRAM.
 
 To remove the environment and shortcuts while keeping models and runs, run
 `powershell -ExecutionPolicy Bypass -File scripts\windows\uninstall.ps1`
@@ -268,8 +290,9 @@ run directly:
 ## Settings
 
 - **Default device**: Auto (CUDA when available), GPU or CPU.
-- **ViPE executable**: enables the *Moving camera (ViPE)* option for Body
-  Motion. ViPE is installed separately; see [ViPE cameras](VIPE_CAMERA.md).
+- **ViPE executable**: the ViPE used for *Full camera tracking*. Leave it empty
+  to use the one `install.bat -Vipe` set up, or point to your own install
+  (see [ViPE cameras](VIPE_CAMERA.md)).
 - **Blender executable**: used for FBX export; auto-detected when empty.
 - The System panel reports PyTorch/CUDA, GPUs, whether detectors run on the GPU,
   ONNX Runtime, FFmpeg, Blender and paths.

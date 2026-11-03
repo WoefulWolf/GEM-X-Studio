@@ -75,7 +75,7 @@ export function SettingsPage() {
             <div className="flex gap-2">
               <Input
                 value={vipe}
-                placeholder="C:\path\to\vipe\.venv\Scripts\vipe.exe"
+                placeholder={settings.data?.vipe_bundled ?? "C:\path\to\vipe\.venv\Scripts\vipe.exe"}
                 onChange={(event) => setVipe(event.target.value)}
                 className="font-mono text-xs"
               />
@@ -88,8 +88,18 @@ export function SettingsPage() {
               </Button>
             </div>
             <p className="text-[11px] text-muted-foreground">
-              Enables the "Moving camera (ViPE)" option for Body Motion. ViPE is installed separately; see
-              docs/VIPE_CAMERA.md.
+              {settings.data?.vipe_bundled ? (
+                <>
+                  Using the ViPE that <span className="font-mono">install.bat -Vipe</span> set up. Enter a path only to
+                  use a different install.
+                </>
+              ) : (
+                <>
+                  Enables full camera tracking for Body Motion. Run{" "}
+                  <span className="font-mono">install.bat -Vipe</span> to add it, or point to your own install (see
+                  docs/VIPE_CAMERA.md).
+                </>
+              )}
             </p>
           </div>
           <div className="flex flex-col gap-2">

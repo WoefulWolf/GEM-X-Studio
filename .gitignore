@@ -52,3 +52,5 @@ examples
 /.install-test.log
 /.download-test.log
 /studio/web/*.tsbuildinfo
+/scripts/windows/vipe/dist/
+/.venv-vipe/

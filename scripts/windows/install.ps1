@@ -19,11 +19,16 @@
   them for faster reinstalls). The choice is remembered for later re-runs;
   -Shared switches back to the shared caches in your user profile.
 
+  -Vipe adds ViPE (moving-camera tracking for Body Motion) in its own
+  environment, .venv-vipe, from a prebuilt Windows package (needs an NVIDIA
+  driver with CUDA 13). Re-runs keep it up to date.
+
 .EXAMPLE
   .\install.bat
   .\install.bat -Models body_pose,body_motion -Yes
   .\install.bat -Torch cpu -NoShortcut
   .\install.bat -Portable
+  .\install.bat -Vipe
 #>
 [CmdletBinding()]
 param(
@@ -38,6 +43,9 @@ param(
     [switch]$Shared,
     # Portable only: keep the install-time download caches instead of emptying them.
     [switch]$KeepCache,
+    # Add ViPE camera tracking (.venv-vipe). -VipeWheel overrides the package (path or URL).
+    [switch]$Vipe,
+    [string]$VipeWheel = '',
     [switch]$Yes,
     [switch]$Launch
 )
@@ -59,7 +67,15 @@ $PythonVersion = '3.12'
 $PortableMarker = Join-Path $Tools 'portable'
 $CacheDir = Join-Path $Tools 'cache'
 $script:Step = 0
-$StepCount = 8
+$StepCount = 9
+# Prebuilt ViPE for Windows (Python 3.12, PyTorch 2.10, CUDA 13.0); see scripts\windows\vipe.
+$VipeWheelUrl = 'https://github.com/WoefulWolf/GEM-X-Studio/releases/download/vipe-1.2.0-win-cu130/nvidia_vipe-1.2.0-cp312-cp312-win_amd64.whl'
+# ViPE's runtime dependencies, without gtsam-develop (no Windows build; only its
+# pose_only_long pipeline needs it, and Studio uses pose_only here).
+$VipeDeps = @('click', 'einops', 'gdown', 'huggingface_hub', 'hydra-core', 'imageio[ffmpeg]', 'kornia',
+    'matplotlib', 'ninja', 'numpy', 'omegaconf', 'opencv-python<5', 'OpenEXR<3.3.0', 'pydantic>=2,<3', 'pillow',
+    'python-pycg', 'ray', 'rerun-sdk', 'safetensors', 'scipy', 'timm', 'tqdm', 'transformers>=4,<5', 'viser',
+    'hf_xet')  # faster Hugging Face downloads for ViPE's models
 
 function Write-Banner {
     Write-Host ''
@@ -339,7 +355,49 @@ if ($Models.Count -gt 0) {
     Write-Info 'Skipped. Open the Models page in Studio to download with one click.'
 }
 
-# 7. Shortcuts ---------------------------------------------------------------
+# 7. ViPE (optional) -----------------------------------------------------------
+Write-Step 'ViPE camera tracking (optional)'
+$VipeVenv = Join-Path $Root '.venv-vipe'
+$VipeExe = Join-Path $VipeVenv 'Scripts\vipe.exe'
+$wantVipe = $Vipe -or (Test-Path $VipeExe)
+if (-not $wantVipe -and -not $Yes) {
+    Write-Info 'ViPE tracks a moving camera (handheld or panning shots) for Body Motion.'
+    Write-Info 'It adds about 6 GB, plus a few GB of models on first use. Fixed-camera clips do not need it.'
+    $wantVipe = (Ask 'Install ViPE? [y/N]' 'N') -match '^[Yy]'
+}
+if (-not $wantVipe) {
+    Write-Info 'Skipped. Run install.bat -Vipe to add it later.'
+} elseif ($torchTag -notmatch '^cu13') {
+    Write-Warn 'The Windows build of ViPE needs CUDA 13 (NVIDIA driver 580 or newer); skipped.'
+} else {
+    # ViPE is optional: a failure here warns and lets the rest of the install finish.
+    $VipePython = Join-Path $VipeVenv 'Scripts\python.exe'
+    $wheel = if ($VipeWheel) { $VipeWheel } else { $VipeWheelUrl }
+    Write-Info 'Installing ViPE and its PyTorch (large download on first install)...'
+    $vipeSteps = @(
+        @{ What = 'creating the ViPE environment'; Args = @('venv', $VipeVenv, '--python', $PythonVersion, '--seed'); Skip = (Test-Path $VipePython) },
+        # Its own PyTorch 2.10 (the package is compiled against it): ViPE needs transformers 4, Studio uses 5.
+        @{ What = 'installing PyTorch for ViPE'; Args = @('pip', 'install', '--python', $VipePython, $TorchSpec,
+            'torchvision>=0.25,<0.26', '--index-url', 'https://download.pytorch.org/whl/cu130') },
+        @{ What = 'installing ViPE'; Args = @('pip', 'install', '--python', $VipePython, '--no-deps', $wheel) },
+        @{ What = 'installing ViPE dependencies'; Args = (@('pip', 'install', '--python', $VipePython) + $VipeDeps) }
+    )
+    $failed = $null
+    # Not $step: PowerShell names ignore case and $Step is the installer's step counter.
+    foreach ($vipeStep in $vipeSteps) {
+        if ($vipeStep.Skip) { continue }
+        & $uv @($vipeStep.Args)
+        if ($LASTEXITCODE -ne 0) { $failed = $vipeStep.What; break }
+    }
+    if ($failed) {
+        Write-Warn "ViPE was not installed ($failed failed). Studio works without it; re-run install.bat -Vipe to retry."
+    } else {
+        & $VipeExe --help *> $null
+        if ($LASTEXITCODE -eq 0) { Write-Ok 'ViPE ready; Studio uses it automatically' } else { Write-Warn 'ViPE did not start; see the output above' }
+    }
+}
+
+# 8. Shortcuts ---------------------------------------------------------------
 Write-Step 'Shortcuts'
 if ($NoShortcut) {
     Write-Info 'Skipped (-NoShortcut).'
@@ -362,14 +420,14 @@ if ($NoShortcut) {
     Write-Ok 'Desktop and Start Menu shortcuts created'
 }
 
-# 8. Cleanup ------------------------------------------------------------------
+# 9. Cleanup ------------------------------------------------------------------
 Write-Step 'Download caches'
 if (-not $usePortable) {
     Write-Info 'Shared caches stay in your user profile (re-run with -Portable to keep everything here).'
 } elseif ($KeepCache) {
     Write-Info 'Kept in .tools\cache (-KeepCache).'
 } else {
-    $installCaches = @('uv', 'npm', 'huggingface') | ForEach-Object { Join-Path $CacheDir $_ } | Where-Object { Test-Path $_ }
+    $installCaches = @('uv', 'npm', 'huggingface\xet') | ForEach-Object { Join-Path $CacheDir $_ } | Where-Object { Test-Path $_ }
     $bytes = 0
     foreach ($folder in $installCaches) {
         $bytes += (Get-ChildItem -Recurse -Force -File $folder -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
