@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   ArrowLeft,
   Box,
@@ -100,10 +100,21 @@ export function RunDetailPage({ jobId }: { jobId: string }) {
     queryFn: () => api.preview(jobId, "refined"),
     enabled: done && refined,
     staleTime: Infinity,
+    // A new refinement keeps the previous one on screen until it has loaded.
+    placeholderData: keepPreviousData,
   })
-  // Wait for the refined bundle rather than flashing the raw one first.
-  const shown: Variant = variant === "refined" && refined ? "refined" : "raw"
-  const preview = { data: shown === "refined" ? refinedPreview.data : raw.data }
+  // On opening, wait for the refined bundle rather than flashing the raw one first. Once the
+  // viewer is up it stays mounted (keeping its view mode and camera): while a first
+  // refinement loads, it keeps showing the raw result.
+  const viewerShown = useRef(false)
+  let shown: Variant = variant === "refined" && refined ? "refined" : "raw"
+  let shownData = shown === "refined" ? refinedPreview.data : raw.data
+  if (!shownData && viewerShown.current && raw.data) {
+    shown = "raw"
+    shownData = raw.data
+  }
+  if (shownData) viewerShown.current = true
+  const preview = { data: shownData }
 
   if (missing) {
     return (
