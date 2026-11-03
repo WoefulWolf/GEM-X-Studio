@@ -14,6 +14,7 @@ import {
   RotateCcw,
   Sparkles,
   Square,
+  X,
 } from "lucide-react"
 import { useEffect, useRef, useState, type ReactNode } from "react"
 import { toast } from "sonner"
@@ -44,6 +45,7 @@ import {
 import { formatBytes, formatDuration, jobElapsed, modeLabel, timeAgo } from "@/lib/format"
 import { saveJobFile } from "@/lib/native"
 import { navigate } from "@/lib/router"
+import { readStored, writeStored } from "@/lib/storage"
 import { cn } from "@/lib/utils"
 import { RunMenu } from "@/pages/runs"
 
@@ -237,11 +239,30 @@ export function RunDetailPage({ jobId }: { jobId: string }) {
 
 /** Motion runs that estimated camera rotation: offer a fixed-camera re-run. */
 function CameraDriftBanner({ job, preview }: { job: Job; preview: Preview }) {
+  const dismissKey = `gem-studio:camera-banner-dismissed:${job.id}`
+  const [dismissed, setDismissed] = useState(() => readStored(dismissKey, false))
   const camera = preview.camera
   const rotation = camera?.max_rotation_deg ?? 0
-  if (preview.type !== "motion" || !camera || camera.mode === "static" || rotation < 2) return null
+  // ViPE is chosen for a moving camera, so its rotation is expected rather than a warning sign.
+  const vipe = job.options.camera_mode === "vipe" || camera?.mode === "vipe"
+  if (preview.type !== "motion" || !camera || camera.mode === "static" || vipe || rotation < 2 || dismissed) {
+    return null
+  }
   return (
-    <Alert className="border-amber-500/40 bg-amber-500/[0.06] py-2.5">
+    <Alert className="relative border-amber-500/40 bg-amber-500/[0.06] py-2.5 pr-10">
+      <Button
+        variant="ghost"
+        size="icon"
+        className="absolute top-1.5 right-1.5 size-7 text-muted-foreground"
+        aria-label="Dismiss"
+        title="Dismiss for this run"
+        onClick={() => {
+          writeStored(dismissKey, true)
+          setDismissed(true)
+        }}
+      >
+        <X />
+      </Button>
       <AlertTitle className="text-[13px]">
         Camera movement was estimated: up to {rotation.toFixed(1)}° of rotation
       </AlertTitle>
