@@ -43,3 +43,12 @@ examples
 # Downloaded model and geometry assets
 /weights/
 /assets/soma/
+
+# GEM-X Studio (Windows installer and local app data)
+/.tools/
+/studio_data/
+/studio/gem_studio/static/
+/studio/web/node_modules/
+/.install-test.log
+/.download-test.log
+/studio/web/*.tsbuildinfo

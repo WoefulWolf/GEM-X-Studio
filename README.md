@@ -97,6 +97,11 @@ See [Model Overview](docs/MODEL_OVERVIEW.md) for architecture and output convent
 
 ## 🚀 Quick Start
 
+> **On Windows?** Double-click **`install.bat`** to set up everything (Python,
+> CUDA PyTorch, GEM-X, models) and launch **GEM-X Studio**, a desktop app to run
+> Body Pose, Hand Pose and Body Motion on your own images and videos, preview the
+> results in 3D, and export meshes or rendered video. See [GEM-X Studio](docs/STUDIO.md).
+
 ### 1. Install
 
 Use Python 3.10 or newer and install a PyTorch 2.10 build for your device. From
@@ -278,6 +283,7 @@ for configuration and metric definitions.
 | Guide | Contents |
 | --- | --- |
 | [Installation](docs/INSTALL.md) | Environment setup, SOMA assets, rendering, and Docker |
+| [GEM-X Studio](docs/STUDIO.md) | One-click Windows installer and desktop app for inference, 3D preview, and export |
 | [Pretrained Models](docs/PRETRAINED_MODELS.md) | Checkpoints, detector pairing, and local weight setup |
 | [Inference](docs/DEMO.md) | Image, video, and cached inference; camera adapters and visualization |
 | [ViPE Cameras](docs/VIPE_CAMERA.md) | Optional automatic camera estimation for Body Motion |
@@ -325,3 +331,15 @@ complete mapping of file and function exceptions, and
 Model weights, geometry assets, and dependencies retain their respective terms;
 see their distributions and the component notices in [ATTRIBUTIONS.md](ATTRIBUTIONS.md).
 Media sources and credits are listed in [assets/CREDITS.md](assets/CREDITS.md).
+
+<a id="about-this-fork"></a>
+
+## 🤖 About this fork
+
+**GEM-X Studio** is a community fork of [NVlabs/GEM-X](https://github.com/NVlabs/GEM-X)
+that adds a one-click Windows installer and a desktop app for running, previewing,
+refining and exporting GEM-X results; see [GEM-X Studio](docs/STUDIO.md). The model
+code and weights are unchanged and remain NVIDIA's work under the terms above.
+
+This fork has mostly been developed and maintained with AI assistance (Claude), with
+human direction and testing.

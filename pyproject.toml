@@ -27,3 +27,7 @@ ignore = [
 
 [tool.ruff.lint.isort]
 known-first-party = ["gem", "tools"]
+
+[tool.ruff.lint.per-file-ignores]
+# FastAPI declares request bodies with Body(...) defaults.
+"studio/gem_studio/app.py" = ["B008"]
