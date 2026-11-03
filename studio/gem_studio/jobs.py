@@ -10,7 +10,7 @@ import time
 import uuid
 from pathlib import Path
 
-from .paths import DATA_DIR, JOBS_DIR, REPO_ROOT, ensure_ffmpeg_on_path
+from .paths import DATA_DIR, JOBS_DIR, REPO_ROOT, ensure_ffmpeg_on_path, python_executable
 
 ACTIVE = ("queued", "running")
 
@@ -229,7 +229,7 @@ class JobManager:
         )
         flags = subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
         flags |= getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        command = [sys.executable, "-m", "gem_studio.worker", str(directory)]
+        command = [python_executable(), "-m", "gem_studio.worker", str(directory)]
         if action == "refine":
             command.append("--refine")
         update = self._update if action == "infer" else self._update_refine

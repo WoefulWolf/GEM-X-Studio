@@ -77,6 +77,20 @@ def ensure_ffmpeg_on_path():
     return str(target)
 
 
+def python_executable():
+    """Interpreter for background processes.
+
+    The app window runs under the windowless ``pythonw.exe``, which has no usable
+    stdout; workers need the console ``python.exe`` next to it (they are still
+    started hidden with CREATE_NO_WINDOW).
+    """
+    executable = Path(sys.executable)
+    console = executable.with_name("python.exe")
+    if executable.name.lower() == "pythonw.exe" and console.is_file():
+        return str(console)
+    return sys.executable
+
+
 def media_kind(path):
     suffix = Path(path).suffix.lower()
     if suffix in IMAGE_EXTENSIONS:

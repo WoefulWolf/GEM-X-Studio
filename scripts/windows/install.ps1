@@ -204,6 +204,25 @@ $check = & $Python -c "import torch, gem, gem_studio, webview; print(torch.__ver
 if ($LASTEXITCODE -ne 0) { Fail 'Python packages did not import correctly.' }
 $check = ($check | Select-Object -Last 1)
 Write-Ok "Packages ready (torch $($check.Split(' ')[0]), CUDA available: $($check.Split(' ')[1]))"
+# uv's venv launchers are console programs, even pythonw.exe, so the app window would
+# come with an empty console window. Put the real windowless interpreter (and the DLLs
+# it loads from its own folder) into the venv; pyvenv.cfg next to it keeps the venv active.
+$venvHome = ((Get-Content (Join-Path $Venv 'pyvenv.cfg')) | Where-Object { $_ -match '^home\s*=' }) -replace '^home\s*=\s*', ''
+$copied = 0
+foreach ($file in @('pythonw.exe', 'python3.dll', ('python' + ($PythonVersion -replace '\.', '') + '.dll'), 'vcruntime140.dll', 'vcruntime140_1.dll')) {
+    $source = Join-Path $venvHome $file
+    if (Test-Path $source) {
+        try {
+            Copy-Item $source (Join-Path $Venv 'Scripts') -Force -ErrorAction Stop
+            $copied++
+        } catch {
+            Write-Warn "Could not update $file (is GEM-X Studio running? close it and re-run install.bat)"
+        }
+    }
+}
+# pythonw is a GUI program: PowerShell's & would not wait for it, so use Start-Process.
+$probe = Start-Process -FilePath $PythonW -ArgumentList '-c', '"import sys, gem_studio; sys.exit(0 if sys.prefix.lower().endswith(''.venv'') else 1)"' -Wait -PassThru -NoNewWindow
+if ($probe.ExitCode -eq 0) { Write-Ok 'Windowless launcher ready' } else { Write-Warn 'Windowless launcher check failed; studio.bat --browser still works' }
 
 # 5. Web UI ------------------------------------------------------------------
 Write-Step 'Studio user interface'

@@ -22,7 +22,13 @@ from fastapi.staticfiles import StaticFiles
 from . import inputs, models, system
 from .exports import EXPORTERS, find_blender, load_faces, load_slots
 from .jobs import JobManager, job_files
-from .paths import SETTINGS_FILE, STATIC_DIR, ensure_dirs, ensure_ffmpeg_on_path
+from .paths import (
+    SETTINGS_FILE,
+    STATIC_DIR,
+    ensure_dirs,
+    ensure_ffmpeg_on_path,
+    python_executable,
+)
 
 DEFAULT_SETTINGS = {
     "device": "auto",
@@ -397,7 +403,14 @@ def create_app(*, port, native=False, dev=False, token=None):
 
         path = skeleton_path(job_dir(job_id), variant, space)
         result = subprocess.run(
-            [sys.executable, "-m", "gem_studio.skeleton", str(job_dir(job_id)), variant, space],
+            [
+                python_executable(),
+                "-m",
+                "gem_studio.skeleton",
+                str(job_dir(job_id)),
+                variant,
+                space,
+            ],
             capture_output=True,
             text=True,
             timeout=900,

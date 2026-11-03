@@ -86,30 +86,23 @@ def _windowless_logging():
     sys.stderr = sys.stderr or stream
 
 
-def _windows_identity(window):
-    """Own taskbar group and window icon instead of pythonw's."""
+def _windows_identity():
+    """Own taskbar group instead of pythonw's (the window icon is set by pywebview)."""
     if sys.platform != "win32":
         return
     import ctypes
 
     try:
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("NVIDIA.GEMX.Studio")
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("GEMX.Studio")
     except (AttributeError, OSError):
         pass
-    icon = PACKAGE_DIR / "icon.ico"
 
-    def apply():
-        try:
-            from System import Action  # pythonnet, installed with pywebview on Windows
-            from System.Drawing import Icon
 
-            form = window.native
-            form.Invoke(Action(lambda: setattr(form, "Icon", Icon(str(icon)))))
-        except Exception as error:  # cosmetic only
-            print(f"Could not set window icon: {error}", flush=True)
-
-    if icon.is_file():
-        window.events.shown += apply
+def _window_icon():
+    """pywebview's Windows backend loads the icon with System.Drawing.Icon, which only
+    accepts .ico files (a PNG crashes the process); other platforms take the PNG."""
+    icon = PACKAGE_DIR / ("icon.ico" if sys.platform == "win32" else "icon.png")
+    return str(icon) if icon.is_file() else None
 
 
 def main(argv=None):
@@ -169,12 +162,11 @@ def main(argv=None):
         text_select=False,
     )
     api._window = window
-    _windows_identity(window)
-    icon = PACKAGE_DIR / "icon.png"
+    _windows_identity()
     storage = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "GEM-X Studio" / "webview"
     webview.start(
         debug=args.debug,
-        icon=str(icon) if icon.is_file() else None,
+        icon=_window_icon(),
         private_mode=False,
         storage_path=str(storage),
     )

@@ -6,7 +6,7 @@ import subprocess
 import sys
 import threading
 
-from .paths import DATA_DIR, REPO_ROOT, SOMA_DIR, WEIGHTS_DIR, ffmpeg_executable
+from .paths import DATA_DIR, REPO_ROOT, SOMA_DIR, WEIGHTS_DIR, ffmpeg_executable, python_executable
 
 _PROBE = r"""
 import json, importlib.util
@@ -49,7 +49,7 @@ def _probe():
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     try:
         output = subprocess.run(
-            [sys.executable, "-c", _PROBE],
+            [python_executable(), "-c", _PROBE],
             capture_output=True,
             text=True,
             timeout=180,

@@ -22,6 +22,10 @@ native = ["pywebview>=5.3"]
 [project.scripts]
 gem-studio = "gem_studio.__main__:main"
 
+# Windowless launcher (GUI subsystem): starts the app window without a console.
+[project.gui-scripts]
+gem-studio-app = "gem_studio.__main__:main"
+
 [tool.setuptools.packages.find]
 include = ["gem_studio", "gem_studio.*"]
 
