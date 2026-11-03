@@ -35,6 +35,23 @@ function intrinsicsProjection(K: number[][], width: number, height: number, near
   return m
 }
 
+/** Radial alpha ramp: opaque centre fading to transparent at the rim. */
+function radialFade() {
+  const size = 256
+  const canvas = document.createElement("canvas")
+  canvas.width = canvas.height = size
+  const context = canvas.getContext("2d")!
+  const gradient = context.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2)
+  gradient.addColorStop(0, "rgba(255,255,255,1)")
+  gradient.addColorStop(0.45, "rgba(255,255,255,0.55)")
+  gradient.addColorStop(1, "rgba(255,255,255,0)")
+  context.fillStyle = gradient
+  context.fillRect(0, 0, size, size)
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.colorSpace = THREE.SRGBColorSpace
+  return texture
+}
+
 interface Slot {
   geometry: THREE.BufferGeometry
   depth: THREE.Mesh
@@ -51,6 +68,10 @@ export class ViewerEngine {
   private orbitCamera = new THREE.PerspectiveCamera(DEFAULT_FOV, 1, 0.02, 500)
   private controls: OrbitControls
   private keyLight = new THREE.DirectionalLight(0xffffff, 2.2)
+  // Overhead light whose only job is the contact shadow on the floor.
+  private shadowLight = new THREE.DirectionalLight(0xffffff, 0.35)
+  private floorDisc: THREE.Mesh
+  private shadowCatcher: THREE.Mesh
   private grid: THREE.GridHelper
   private trajectory: THREE.Line | null = null
   private frustum: THREE.LineSegments | null = null
@@ -84,6 +105,41 @@ export class ViewerEngine {
     this.scene.add(new THREE.HemisphereLight(0xf2f6ff, 0x30343c, 1.25))
     this.scene.add(this.keyLight)
     this.scene.add(this.keyLight.target)
+    // A soft shadow under the body is the cue that shows whether the feet touch the floor;
+    // grid lines alone make a grounded body look like it hovers.
+    this.renderer.shadowMap.enabled = true
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
+    this.shadowLight.castShadow = true
+    this.shadowLight.shadow.mapSize.set(2048, 2048)
+    this.shadowLight.shadow.bias = -0.0004
+    this.shadowLight.shadow.radius = 3
+    const shadowCamera = this.shadowLight.shadow.camera
+    shadowCamera.left = shadowCamera.bottom = -2.5
+    shadowCamera.right = shadowCamera.top = 2.5
+    shadowCamera.near = 0.5
+    shadowCamera.far = 12
+    this.scene.add(this.shadowLight)
+    this.scene.add(this.shadowLight.target)
+    // On the dark viewer a shadow needs something lighter to darken: a faint disc under
+    // the body, fading out at the rim, with a shadow-only layer on top.
+    const disc = new THREE.CircleGeometry(3, 96).rotateX(-Math.PI / 2)
+    this.floorDisc = new THREE.Mesh(
+      disc,
+      new THREE.MeshBasicMaterial({
+        color: 0xb4bcc8,
+        map: radialFade(),
+        transparent: true,
+        opacity: 0.16,
+        depthWrite: false,
+      }),
+    )
+    this.shadowCatcher = new THREE.Mesh(
+      disc,
+      new THREE.ShadowMaterial({ opacity: 0.55, transparent: true, depthWrite: false }),
+    )
+    this.shadowCatcher.receiveShadow = true
+    this.shadowCatcher.renderOrder = 1
+    this.scene.add(this.floorDisc, this.shadowCatcher)
     this.grid = new THREE.GridHelper(20, 40, 0x5d6470, 0x3a3f48)
     ;(this.grid.material as THREE.Material).transparent = true
     ;(this.grid.material as THREE.Material).opacity = 0.55
@@ -135,6 +191,12 @@ export class ViewerEngine {
       slot.geometry.dispose()
       slot.material.dispose()
     }
+    this.shadowCatcher.geometry.dispose()
+    const discMaterial = this.floorDisc.material as THREE.MeshBasicMaterial
+    discMaterial.map?.dispose()
+    discMaterial.dispose()
+    ;(this.shadowCatcher.material as THREE.Material).dispose()
+    this.shadowLight.shadow.dispose()
     this.renderer.dispose()
   }
 
@@ -223,6 +285,7 @@ export class ViewerEngine {
       depth.renderOrder = 0
       const color = new THREE.Mesh(geometry, material)
       color.renderOrder = 1
+      color.castShadow = true
       material.depthFunc = THREE.LessEqualDepth
       slot = { geometry, depth, color, material, topology }
       this.slots[index] = slot
@@ -302,6 +365,7 @@ export class ViewerEngine {
       this.keyLight.position.set(-0.6, 0.8, 1.5)
       this.keyLight.target.position.set(0, 0, -3)
       this.grid.visible = false
+      this.floorDisc.visible = this.shadowCatcher.visible = false
       if (this.trajectory) this.trajectory.visible = false
       if (this.frustum) this.frustum.visible = false
       this.scene.background = null
@@ -336,6 +400,13 @@ export class ViewerEngine {
     if (ground != null) this.floor = ground
     this.grid.visible = true
     this.grid.position.set(this.controls.target.x, (this.floor ?? 0) - 0.002, this.controls.target.z)
+    this.floorDisc.visible = this.shadowCatcher.visible = true
+    // Light from almost straight above the body, so the shadow sits right under the feet.
+    const over = centroid ?? this.controls.target
+    this.floorDisc.position.set(over.x, (this.floor ?? 0) - 0.001, over.z)
+    this.shadowCatcher.position.copy(this.floorDisc.position)
+    this.shadowLight.target.position.set(over.x, this.floor ?? 0, over.z)
+    this.shadowLight.position.set(over.x + 0.35, (this.floor ?? 0) + 6, over.z + 0.6)
     if (this.mode === "world") {
       this.grid.position.x = Math.round(this.controls.target.x)
       this.grid.position.z = Math.round(this.controls.target.z)

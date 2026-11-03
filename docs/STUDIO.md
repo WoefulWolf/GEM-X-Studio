@@ -188,7 +188,8 @@ footwork. Motion's Refine tab offers:
   the foot sit at their anatomical flat-foot heights (from SOMA's rest pose, the
   same for both feet). *Contact sensitivity* sets how many frames count as
   planted.
-- *Floor offset*: raise or lower the body in centimetres.
+- *Body height*: 0 rests the soles exactly on the floor; positive values lift the body
+  above it (e.g. to leave room for shoe soles), negative values sink it in.
 - *Smoothing*: the same adaptive filter as for Pose, off by default since Motion
   is already temporal.
 

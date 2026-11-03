@@ -966,7 +966,7 @@ function MotionRefinePanel({ job, onRefined }: { job: Job; onRefined: () => void
         title="Feet & floor"
         summary={[
           options.plant_feet ? `Planted · ${Math.round(sensitivity * 100)}%` : "Not planted",
-          offset && `floor ${signed(offset, " cm")}`,
+          offset && `body ${signed(offset, " cm")}`,
         ]
           .filter(Boolean)
           .join(" · ")}
@@ -990,16 +990,20 @@ function MotionRefinePanel({ job, onRefined }: { job: Job; onRefined: () => void
           onChange={(value) => set({ contact_threshold: Number((1 - value).toFixed(2)) })}
         />
         <RangeField
-          label="Floor offset"
+          label="Body height"
           value={offset}
-          display={signed(offset, " cm")}
+          display={offset ? signed(offset, " cm") : "On the floor"}
           min={-5}
           max={5}
           step={0.5}
-          left="Lower"
-          right="Raise"
+          left="Sink into floor"
+          right="Lift off floor"
           onChange={(floor_offset_cm) => set({ floor_offset_cm })}
         />
+        <p className="-mt-2 text-[11px] leading-relaxed text-muted-foreground">
+          At 0 the soles rest exactly on the floor. Positive values lift the whole body above it (for example
+          to leave room for shoe soles), negative values sink it in.
+        </p>
       </PanelSection>
 
       <PanelSection
