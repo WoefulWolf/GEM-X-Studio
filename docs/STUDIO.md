@@ -134,7 +134,7 @@ files are queued as separate runs.
 | --- | --- | --- |
 | Body Pose | images, videos (framewise) | device |
 | Hand Pose | images, videos (framewise) | third-person (exo) or first-person (ego) view, left/right hands, temporal smoothing for ego video |
-| Body Motion | videos, up to 60 s per run | is the camera moving (fixed by default; moving uses background rotation estimates or ViPE); anchor to the camera; contact & IK refinement; clip range |
+| Body Motion | videos, up to 60 s per run | is the camera moving (fixed by default; moving uses background rotation estimates or ViPE); anchor to the camera; contact & IK refinement; clip range; which person to follow |
 
 **Clip (Body Motion).** With one video selected, the run panel shows the frames that
 will be analysed; **Change start/end** opens a card sized to the video for picking the
@@ -143,6 +143,16 @@ white playhead and press **Set start** / **Set end** (I / O), or type frame numb
 step one or ten frames. **Play** loops the selection with sound. The preview shows
 exactly the frame GEM will use: the start and duration Studio sends make GEM's cut
 begin and end on the chosen frames (sources that are not 30 fps are then resampled).
+
+**Subject (Body Motion).** GEM follows one person. By default that is the largest
+person over the clip. With several people in view, **Pick subject** (or **P** in the
+clip card) boxes everyone on the shown frame. The boxes come from the same person
+detector the run uses, run on the CPU for that one frame. Click the person to follow,
+or step to a frame where they are clearly visible first. The run's tracker still sees
+everyone; it keeps the track that matches the picked box (searching a few frames
+around it) instead of the largest one. A pick on a frame outside the clip is ignored
+and the run falls back to the largest person. Where the subject crosses another
+person, the tracker can still switch to them; check those moments in the result.
 
 **Runs.** Runs execute one at a time on the GPU, each in its own process, so a
 crash or cancel never takes the app down and GPU memory is released after each

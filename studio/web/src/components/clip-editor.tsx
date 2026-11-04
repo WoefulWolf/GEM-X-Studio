@@ -1,11 +1,15 @@
+import { useQuery } from "@tanstack/react-query"
 import {
   ChevronLeft,
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
+  Crosshair,
+  Loader2,
   Pause,
   Play,
   RotateCcw,
+  UserRound,
   Volume1,
   Volume2,
   VolumeX,
@@ -16,7 +20,7 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Slider } from "@/components/ui/slider"
-import { urls, type InputRecord } from "@/lib/api"
+import { api, urls, type InputRecord, type Subject } from "@/lib/api"
 import { formatTimecode } from "@/lib/format"
 import { MUTED_KEY, VOLUME_KEY, readStored, writeStored } from "@/lib/storage"
 import { cn } from "@/lib/utils"
@@ -56,21 +60,50 @@ export function clipToSeconds(input: InputRecord, [first, last]: ClipRange) {
   return { start: round(start), duration: round(end - start) }
 }
 
+/** Whether a picked subject lies inside the clip (only then does the run use it). */
+export function subjectInClip(subject: Subject | null, [first, last]: ClipRange) {
+  return !!subject && subject.frame >= first && subject.frame <= last
+}
+
+/** The picked person, cropped from their frame. */
+export function SubjectThumb(props: { input: InputRecord; subject: Subject; size: number; className?: string }) {
+  const { input, subject, size } = props
+  const [x1, y1, x2, y2] = subject.box
+  // Fit the box (with a little margin) into the square; the frame is drawn at that scale.
+  const scale = (size / Math.max(x2 - x1, y2 - y1, 1)) * 0.9
+  return (
+    <div
+      className={cn("shrink-0 rounded bg-black bg-no-repeat", props.className)}
+      style={{
+        width: size,
+        height: size,
+        backgroundImage: `url(${urls.inputFrame(input.id, subject.frame, 360)})`,
+        backgroundSize: `${input.width * scale}px ${input.height * scale}px`,
+        backgroundPosition: `${size / 2 - ((x1 + x2) / 2) * scale}px ${size / 2 - ((y1 + y2) / 2) * scale}px`,
+      }}
+    />
+  )
+}
+
 /** Floating card for picking the exact first and last frame, sized to the video. */
 export function ClipDialog(props: {
   input: InputRecord
   value: ClipRange
   onChange: (value: ClipRange) => void
+  subject: Subject | null
+  onSubjectChange: (value: Subject | null) => void
+  /** Open straight into picking the subject on the current frame. */
+  startPicking?: boolean
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
-      <DialogContent className="w-auto max-w-[calc(100vw-2rem)] gap-4 p-5 sm:max-w-[calc(100vw-2rem)]">
+      <DialogContent className="max-h-[calc(100vh-2rem)] w-auto max-w-[calc(100vw-2rem)] gap-4 overflow-y-auto p-5 sm:max-w-[calc(100vw-2rem)]">
         <div className="pr-8">
           <DialogTitle className="text-base">Clip</DialogTitle>
           <DialogDescription className="text-xs">
-            {props.input.name} · choose the exact first and last frame (up to {MAX_SECONDS} s).
+            {props.input.name} · choose the exact first and last frame (up to {MAX_SECONDS} s) and who to follow.
           </DialogDescription>
         </div>
         {/* Mounted only while the card is shown (Radix), so each opening starts fresh. */}
@@ -84,10 +117,13 @@ function ClipEditor(props: {
   input: InputRecord
   value: ClipRange
   onChange: (value: ClipRange) => void
+  subject: Subject | null
+  onSubjectChange: (value: Subject | null) => void
+  startPicking?: boolean
   onOpenChange: (open: boolean) => void
   portrait: boolean
 }) {
-  const { input, value, onChange, portrait } = props
+  const { input, value, onChange, subject, portrait } = props
   const { fps, count, maxLength } = clipLimits(input)
   const [first, last] = value
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -97,6 +133,8 @@ function ClipEditor(props: {
   const [playing, setPlaying] = useState(false)
   // The browser cannot decode every format (e.g. HEVC); fall back to frames cut by the server.
   const [fallback, setFallback] = useState(false)
+  // Picking the subject: the people on the shown frame become clickable boxes.
+  const [picking, setPicking] = useState(!!props.startPicking)
   const [volume, setVolume] = useState(() => readStored(VOLUME_KEY, 0.8))
   const [muted, setMuted] = useState(() => readStored(MUTED_KEY, false))
 
@@ -157,6 +195,32 @@ function ClipEditor(props: {
     }
   }, [playing, first, last, fps])
 
+  // Detect people once scrubbing settles on a frame (each lookup decodes a full frame).
+  const [lookupFrame, setLookupFrame] = useState(playhead)
+  useEffect(() => {
+    if (!picking || playing) return
+    const timer = setTimeout(() => setLookupFrame(playhead), 150)
+    return () => clearTimeout(timer)
+  }, [picking, playing, playhead])
+  const people = useQuery({
+    queryKey: ["people", input.id, lookupFrame],
+    queryFn: () => api.inputPeople(input.id, lookupFrame),
+    enabled: picking && !playing && lookupFrame === playhead,
+    staleTime: Infinity,
+    retry: false,
+  })
+  const shownPeople = picking && !playing && people.data?.frame === playhead ? people.data : null
+
+  const togglePlaying = () => {
+    if (fallback) return
+    if (!playing) setPicking(false)
+    setPlaying(!playing)
+  }
+  const togglePicking = () => {
+    setPlaying(false)
+    setPicking(!picking)
+  }
+
   const seek = (frame: number) => {
     setPlaying(false)
     setPlayhead(Math.round(Math.min(Math.max(frame, 0), count - 1)))
@@ -184,8 +248,9 @@ function ClipEditor(props: {
     const key = event.key.toLowerCase()
     if (key === " ") {
       event.preventDefault()
-      if (!fallback) setPlaying(!playing)
-    } else if (key === "arrowleft" || key === "arrowright") {
+      togglePlaying()
+    } else if (key === "p") togglePicking()
+    else if (key === "arrowleft" || key === "arrowright") {
       event.preventDefault()
       seek(playhead + (key === "arrowleft" ? -1 : 1) * (event.shiftKey ? 10 : 1))
     } else if (key === "i") setEdge("start", playhead)
@@ -193,15 +258,22 @@ function ClipEditor(props: {
   }
 
   const frames = last - first + 1
+  // The box always has the video's shape (subject boxes are placed in percent of it):
+  // a wide video is sized by width, capped so its height leaves room for the controls below
+  // (about 610 px) and stays within half the window.
+  const maxHeight = "max(240px, min(50vh, 100vh - 610px))"
   const previewSize = portrait
     ? { height: "min(66vh, 720px)" }
-    : { width: "min(820px, calc(100vw - 4.5rem))", maxHeight: "58vh" }
+    : { width: `min(820px, calc(100vw - 4.5rem), calc(${maxHeight} * ${input.width / input.height}))` }
 
   const preview = (
     <div
       style={{ ...previewSize, aspectRatio: `${input.width} / ${input.height}` }}
-      className="relative flex max-w-full cursor-pointer items-center justify-center overflow-hidden rounded-lg bg-black"
-      onClick={() => !fallback && setPlaying(!playing)}
+      className={cn(
+        "relative flex max-w-full items-center justify-center overflow-hidden rounded-lg bg-black",
+        !picking && "cursor-pointer",
+      )}
+      onClick={() => !picking && togglePlaying()}
     >
       {fallback ? (
         <img
@@ -225,6 +297,53 @@ function ClipEditor(props: {
         {playhead === last && <span className="ml-1 text-primary">· end</span>}
         {(playhead < first || playhead > last) && <span className="ml-1 text-white/60">· outside the clip</span>}
       </div>
+      {/* The media fills the box exactly (same aspect ratio), so boxes are placed in percent. */}
+      {shownPeople?.people.map((person, index) => (
+        <button
+          key={index}
+          type="button"
+          aria-label={`Follow person ${index + 1}`}
+          title="Follow this person"
+          onClick={(event) => {
+            event.stopPropagation()
+            props.onSubjectChange({ frame: shownPeople.frame, box: person.box })
+            setPicking(false)
+          }}
+          style={boxStyle(person.box, shownPeople.width, shownPeople.height)}
+          className="group absolute cursor-pointer rounded-sm border-2 border-white/85 shadow-[0_0_0_1px_rgba(0,0,0,0.5)] transition-colors hover:border-primary hover:bg-primary/20"
+        >
+          <span className="absolute -top-px -left-px rounded-br-sm bg-white/85 px-1 text-[10px] font-semibold text-black group-hover:bg-primary group-hover:text-primary-foreground">
+            {index + 1}
+          </span>
+        </button>
+      ))}
+      {!picking && subject && playhead === subject.frame && (
+        <div
+          style={boxStyle(subject.box, input.width, input.height)}
+          className="pointer-events-none absolute rounded-sm border-2 border-primary"
+        >
+          <span className="absolute -top-px -left-px rounded-br-sm bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
+            Subject
+          </span>
+        </div>
+      )}
+      {picking && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-2 flex justify-center px-2">
+          <div className="flex items-center gap-1.5 rounded-md bg-black/70 px-2.5 py-1 text-xs text-white backdrop-blur">
+            {people.isError ? (
+              <span className="text-amber-300">{(people.error as Error).message}</span>
+            ) : !shownPeople ? (
+              <>
+                <Loader2 className="size-3.5 animate-spin" /> Finding people…
+              </>
+            ) : shownPeople.people.length ? (
+              <>Click the person to follow · step to another frame if they are hidden</>
+            ) : (
+              <>No one found on this frame · step to another</>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 
@@ -244,7 +363,7 @@ function ClipEditor(props: {
           size="icon"
           className="size-8 rounded-full"
           disabled={fallback}
-          onClick={() => setPlaying(!playing)}
+          onClick={togglePlaying}
           aria-label={playing ? "Pause" : "Play selection"}
           title={playing ? "Pause (Space)" : "Play selection (Space)"}
         >
@@ -339,9 +458,22 @@ function ClipEditor(props: {
           {Math.abs(fps - 30) > 0.5 ? ` · ${Number(fps.toFixed(2))} fps, resampled to 30 fps` : ""}
         </span>
       </div>
+      <SubjectControl
+        input={input}
+        subject={subject}
+        inClip={subjectInClip(subject, value)}
+        picking={picking}
+        onPick={togglePicking}
+        onShow={() => subject && seek(subject.frame)}
+        onClear={() => {
+          props.onSubjectChange(null)
+          setPicking(false)
+        }}
+        wide={!portrait}
+      />
       <p className="text-[11px] leading-relaxed text-muted-foreground">
-        Space plays · ←/→ step a frame (Shift: 10) · I / O set start / end at the playhead. Drag the green handles to
-        trim, anywhere else on the strip to scrub.
+        Space plays · ←/→ step a frame (Shift: 10) · I / O set start / end at the playhead · P picks the subject. Drag
+        the green handles to trim, anywhere else on the strip to scrub.
       </p>
       <div className={cn("flex gap-2", portrait ? "mt-auto" : "justify-end")}>
         <Button
@@ -368,6 +500,85 @@ function ClipEditor(props: {
         {transport}
       </div>
       {portrait ? <div className="flex w-[300px] shrink-0 flex-col">{controls}</div> : controls}
+    </div>
+  )
+}
+
+/** Absolute position of a source-pixel box over media that fills its container. */
+function boxStyle([x1, y1, x2, y2]: [number, number, number, number], width: number, height: number) {
+  return {
+    left: `${(x1 / width) * 100}%`,
+    top: `${(y1 / height) * 100}%`,
+    width: `${((x2 - x1) / width) * 100}%`,
+    height: `${((y2 - y1) / height) * 100}%`,
+  }
+}
+
+/** Who the run follows: the largest person (automatic) or one picked on a frame. */
+function SubjectControl(props: {
+  input: InputRecord
+  subject: Subject | null
+  inClip: boolean
+  picking: boolean
+  onPick: () => void
+  onShow: () => void
+  onClear: () => void
+  /** Wide card (video above the controls): the button sits on the same row. */
+  wide: boolean
+}) {
+  const { subject } = props
+  const pick = (
+    <Button
+      variant={props.picking ? "default" : "outline"}
+      size="sm"
+      className="h-7 shrink-0 text-xs"
+      onClick={props.onPick}
+    >
+      <Crosshair /> {props.picking ? "Cancel picking" : subject ? "Pick again on this frame" : "Pick on this frame"}
+    </Button>
+  )
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border p-2.5">
+      <div className="flex items-center justify-between text-xs">
+        <span className="font-medium">Subject</span>
+        {subject && (
+          <button
+            type="button"
+            className="text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+            onClick={props.onClear}
+          >
+            Use automatic
+          </button>
+        )}
+      </div>
+      <div className="flex items-center gap-2.5">
+        {subject ? (
+          <button type="button" onClick={props.onShow} title="Show the frame it was picked on">
+            <SubjectThumb input={props.input} subject={subject} size={40} className="ring-2 ring-primary/60" />
+          </button>
+        ) : (
+          <div className="grid size-10 shrink-0 place-items-center rounded bg-muted text-muted-foreground">
+            <UserRound className="size-5" />
+          </div>
+        )}
+        <div className="min-w-0 flex-1 text-[11px] leading-snug">
+          {!subject ? (
+            <span className="text-muted-foreground">Automatic: the largest person over the clip.</span>
+          ) : props.inClip ? (
+            <span>
+              Picked on frame {subject.frame + 1}. The run follows this person{" "}
+              <span className="text-muted-foreground">(where they cross someone, it can still switch).</span>
+            </span>
+          ) : (
+            <span className="text-amber-600 dark:text-amber-400">
+              Picked on frame {subject.frame + 1}, outside the clip, so the run uses the largest person. Pick again
+              inside the clip.
+            </span>
+          )}
+        </div>
+        {props.wide && pick}
+      </div>
+      {!props.wide && pick}
     </div>
   )
 }

@@ -49,12 +49,14 @@ def square_crops(boxes, enlarge=1.2):
     return np.concatenate((centers, size[:, None]), axis=-1)
 
 
-def detect_track(frames_rgb, detector, *, bbox_enlarge=1.2, tracker_options=None):
+def detect_track(frames_rgb, detector, *, bbox_enlarge=1.2, tracker_options=None, subject=None):
     """Detect every RGB frame, then apply original primary/gap/crop rules.
 
     Filled endpoints and gaps retain the selected ID, exactly as deployed.
     All/other person boxes contain active tracker outputs before smoothing.
     The caller owns video decoding/timing; detector.detect receives BGR.
+    ``subject`` ({"frame": t, "box": xyxy}) picks the track matching that box
+    near frame t instead of the largest one.
     """
     if len(frames_rgb) == 0:
         raise ValueError("Detection needs at least one decoded RGB frame")
@@ -72,7 +74,9 @@ def detect_track(frames_rgb, detector, *, bbox_enlarge=1.2, tracker_options=None
         per_frame.append(tracker.update(boxes, scores))
     if not any(per_frame):
         raise ValueError("No person track was detected in the decoded video")
-    selected, ids = _select_primary_track(per_frame, len(per_frame), height, width)
+    selected, ids = _select_primary_track(
+        per_frame, len(per_frame), height, width, subject=subject
+    )
     primary_id = ids[0]
     observed = np.asarray([any(tid == primary_id for _, tid, _ in rows) for rows in per_frame])
     valid_indices = np.flatnonzero(observed)
@@ -101,11 +105,41 @@ def detect_track(frames_rgb, detector, *, bbox_enlarge=1.2, tracker_options=None
     )
 
 
+def _box_iou(a, b):
+    width = min(a[2], b[2]) - max(a[0], b[0])
+    height = min(a[3], b[3]) - max(a[1], b[1])
+    if width <= 0 or height <= 0:
+        return 0.0
+    inter = width * height
+    union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter
+    return float(inter / union) if union > 0 else 0.0
+
+
+def _subject_track(per_frame, subject, *, reach=15, min_iou=0.3):
+    """Track ID best overlapping the subject box at its frame, else the nearest frame.
+
+    The subject's frame is converted from another timeline, so a few frames of
+    slack are searched outward; None when no track overlaps the box well enough.
+    """
+    frame, box = int(subject["frame"]), np.asarray(subject["box"], dtype=np.float32)
+    for offset in sorted(range(-reach, reach + 1), key=abs):
+        t = frame + offset
+        if not 0 <= t < len(per_frame):
+            continue
+        scored = [(_box_iou(row_box, box), tid) for row_box, tid, _ in per_frame[t]]
+        if scored:
+            iou, tid = max(scored)
+            if iou >= min_iou:
+                return tid
+    return None
+
+
 def _select_primary_track(
     per_frame: list[list[tuple[np.ndarray, int, float]]],
     T: int,
     H: int,
     W: int,
+    subject=None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Pick the dominant track and extract per-frame boxes."""
     from collections import defaultdict
@@ -120,8 +154,15 @@ def _select_primary_track(
             track_area[tid] += area
             track_frames[tid].append((t, box, score))
 
-    # Primary track = largest cumulative area
-    primary_id = max(track_area, key=track_area.get)
+    # Primary track = the requested subject, else the largest cumulative area
+    primary_id = _subject_track(per_frame, subject) if subject is not None else None
+    if subject is not None and primary_id is None:
+        print(
+            f"Subject not found near frame {subject['frame']}; using the largest person",
+            flush=True,
+        )
+    if primary_id is None:
+        primary_id = max(track_area, key=track_area.get)
     primary_dict = {t: box for t, box, _ in track_frames[primary_id]}
 
     bbx_xyxy = np.zeros((T, 4), dtype=np.float32)

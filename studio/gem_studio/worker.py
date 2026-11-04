@@ -92,6 +92,8 @@ def resolve_detector_device(options, device):
 
 
 DETECTOR_DEVICE = {"value": "cpu"}
+# Body Motion: the person picked in the Clip card, on GEM's 30 fps clip timeline.
+TRACKING_SUBJECT = {"value": None}
 
 
 def build_argv(job, output):
@@ -169,6 +171,8 @@ def install_progress_hooks():
     def load_config_with_detector(path):
         config = load_config(path)
         config.setdefault("detector", {})["device"] = DETECTOR_DEVICE["value"]
+        if TRACKING_SUBJECT["value"] is not None:
+            config.setdefault("tracking", {})["subject"] = TRACKING_SUBJECT["value"]
         return config
 
     body_video.load_body_video_config = load_config_with_detector
@@ -250,6 +254,12 @@ def run(job_dir):
     ensure_ffmpeg_on_path()
     stage("Starting", f"{job['kind']} / {job['task']}")
     argv = build_argv(job, output)
+    if job["kind"] == "motion-video":
+        from .subjects import tracking_subject
+
+        TRACKING_SUBJECT["value"] = tracking_subject(job.get("options", {}), job["input"])
+        if TRACKING_SUBJECT["value"] is not None:
+            print(f"Subject: {TRACKING_SUBJECT['value']}", flush=True)
     print("gem-infer " + " ".join(f'"{a}"' if " " in a else a for a in argv), flush=True)
     install_progress_hooks()
     from gem.inference.cli import main as infer

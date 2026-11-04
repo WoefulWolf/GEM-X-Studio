@@ -10,6 +10,7 @@ import {
   PersonStanding,
   Play,
   Scissors,
+  UserRound,
   Trash2,
   Upload,
   X,
@@ -18,7 +19,15 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 
-import { ClipDialog, clipLimits, clipToSeconds, defaultClip, type ClipRange } from "@/components/clip-editor"
+import {
+  ClipDialog,
+  SubjectThumb,
+  clipLimits,
+  clipToSeconds,
+  defaultClip,
+  subjectInClip,
+  type ClipRange,
+} from "@/components/clip-editor"
 import { PageHeader } from "@/components/logo"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -35,6 +44,7 @@ import {
   type InputRecord,
   type JobKind,
   type JobOptions,
+  type Subject,
   type TaskId,
 } from "@/lib/api"
 import { formatBytes, formatDuration } from "@/lib/format"
@@ -142,10 +152,13 @@ export function NewRunPage() {
   // Body Motion on a single video: pick the exact frames to run on.
   const clipInput = task === "body_motion" && usable.length === 1 && usable[0].kind === "video" ? usable[0] : null
   const [clip, setClip] = useState<ClipRange | null>(null)
+  // The person to follow, picked on one frame of that video (none: the largest person).
+  const [subject, setSubject] = useState<Subject | null>(null)
   const clipKey = clipInput ? `${clipInput.id}:${clipInput.frame_count}:${clipInput.fps}` : ""
   useEffect(() => {
     setClip(clipInput ? defaultClip(clipInput) : null)
-    // Only a different video (or new metadata) resets the range.
+    setSubject(null)
+    // Only a different video (or new metadata) resets the range and subject.
   }, [clipKey])
 
   return (
@@ -278,6 +291,8 @@ export function NewRunPage() {
             clipInput={clipInput}
             clip={clipInput ? clip : null}
             onClipChange={setClip}
+            subject={clipInput ? subject : null}
+            onSubjectChange={setSubject}
             onDone={() => setSelected([])}
           />
         </aside>
@@ -416,6 +431,8 @@ function RunPanel(props: {
   clipInput: InputRecord | null
   clip: ClipRange | null
   onClipChange: (value: ClipRange) => void
+  subject: Subject | null
+  onSubjectChange: (value: Subject | null) => void
   onDone: () => void
 }) {
   const queryClient = useQueryClient()
@@ -427,6 +444,8 @@ function RunPanel(props: {
   const [postprocess, setPostprocess] = useState(true)
   const [anchorWorld, setAnchorWorld] = useState(true)
   const [clipOpen, setClipOpen] = useState(false)
+  // Opened from the Subject row: start in picking mode.
+  const [pickOnOpen, setPickOnOpen] = useState(false)
   useEffect(() => {
     setDevice(props.defaultDevice)
   }, [props.defaultDevice])
@@ -453,6 +472,8 @@ function RunPanel(props: {
             start,
             duration,
           })
+          // A subject picked outside the clip is not in the run's frames: fall back to automatic.
+          if (single && props.clip && subjectInClip(props.subject, props.clip)) options.subject = props.subject
         } else {
           kind = input.kind === "image" ? "pose-image" : "pose-video"
           if (props.task === "hand_pose") {
@@ -605,7 +626,14 @@ function RunPanel(props: {
                     {(clipLimits(props.clipInput).count / clipLimits(props.clipInput).fps).toFixed(2)} s
                   </div>
                 </div>
-                <Button variant="outline" size="sm" onClick={() => setClipOpen(true)}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setPickOnOpen(false)
+                    setClipOpen(true)
+                  }}
+                >
                   <Scissors /> Change start/end
                 </Button>
               </div>
@@ -613,9 +641,55 @@ function RunPanel(props: {
                 input={props.clipInput}
                 value={props.clip}
                 onChange={props.onClipChange}
+                subject={props.subject}
+                onSubjectChange={props.onSubjectChange}
+                startPicking={pickOnOpen}
                 open={clipOpen}
                 onOpenChange={setClipOpen}
               />
+            </Field>
+          )}
+          {props.clipInput && props.clip && (
+            <Field label="Subject">
+              <div className="flex items-center gap-3 rounded-lg border p-2">
+                {props.subject ? (
+                  <SubjectThumb input={props.clipInput} subject={props.subject} size={40} />
+                ) : (
+                  <div className="grid size-10 shrink-0 place-items-center rounded bg-muted text-muted-foreground">
+                    <UserRound className="size-5" />
+                  </div>
+                )}
+                <div className="min-w-0 flex-1 text-[11px] leading-snug">
+                  {!props.subject ? (
+                    <>
+                      <div className="font-medium text-foreground">Largest person</div>
+                      <div className="text-muted-foreground">Automatic. Pick who to follow if several people are in view.</div>
+                    </>
+                  ) : subjectInClip(props.subject, props.clip) ? (
+                    <>
+                      <div className="font-medium text-foreground">Picked person</div>
+                      <div className="text-muted-foreground tabular-nums">on frame {props.subject.frame + 1}</div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="font-medium text-foreground">Picked person</div>
+                      <div className="text-amber-600 dark:text-amber-400">
+                        Outside the clip: the largest person is used
+                      </div>
+                    </>
+                  )}
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setPickOnOpen(true)
+                    setClipOpen(true)
+                  }}
+                >
+                  <UserRound /> {props.subject ? "Change" : "Pick subject"}
+                </Button>
+              </div>
             </Field>
           )}
           {!single && props.inputs.some((input) => (input.duration ?? 0) > 60) && (

@@ -19,7 +19,7 @@ from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import camera_path, inputs, models, system
+from . import camera_path, inputs, models, subjects, system
 from .exports import EXPORTERS, find_blender, load_faces, load_slots
 from .jobs import JobManager, job_files
 from .paths import (
@@ -275,6 +275,19 @@ def create_app(*, port, native=False, dev=False, token=None):
             raise HTTPException(404, str(error)) from None
         return Response(data, media_type="image/jpeg", headers={"Cache-Control": "max-age=86400"})
 
+    @app.get("/api/inputs/{input_id}/people")
+    def input_people(input_id: str, index: int = 0):
+        """People on one source frame, for picking a Body Motion run's subject."""
+        record = input_or_404(input_id)
+        if record["kind"] != "video":
+            raise HTTPException(400, "Not a video")
+        try:
+            return subjects.detect_people(record, max(0, index))
+        except FileNotFoundError as error:
+            raise HTTPException(409, str(error)) from None
+        except ValueError as error:
+            raise HTTPException(404, str(error)) from None
+
     @app.delete("/api/inputs/{input_id}")
     def delete_input(input_id: str):
         input_or_404(input_id)
@@ -300,6 +313,16 @@ def create_app(*, port, native=False, dev=False, token=None):
         if missing:
             raise HTTPException(409, "Missing models: " + ", ".join(missing))
         options = dict(payload.get("options") or {})
+        if options.get("subject"):
+            subject = options["subject"]
+            try:
+                box = [float(value) for value in subject["box"]]
+                frame = int(subject["frame"])
+            except (KeyError, TypeError, ValueError):
+                raise HTTPException(400, "Subject needs a frame and a box") from None
+            if kind != "motion-video" or len(box) != 4 or frame < 0:
+                raise HTTPException(400, "A subject is a source frame and box, for Body Motion")
+            options["subject"] = {"frame": frame, "box": box}
         settings = load_settings()
         options.setdefault("device", settings["device"])
         vipe = settings.get("vipe_executable") or bundled_vipe()

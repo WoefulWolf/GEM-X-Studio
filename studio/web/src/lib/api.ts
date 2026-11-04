@@ -31,6 +31,22 @@ export interface JobOptions {
   duration?: number | null
   postprocess?: boolean
   anchor_world?: boolean
+  /** Body Motion: track this person instead of the largest one. */
+  subject?: Subject | null
+}
+
+/** A person picked on one source frame: frame index and box (x1, y1, x2, y2) in source pixels. */
+export interface Subject {
+  frame: number
+  box: [number, number, number, number]
+}
+
+/** People the detector finds on one source frame, largest first. */
+export interface FramePeople {
+  frame: number
+  width: number
+  height: number
+  people: { box: [number, number, number, number]; score: number }[]
 }
 
 export interface Job {
@@ -310,6 +326,7 @@ export const api = {
     ),
   jobs: () => request<Job[]>("/api/jobs"),
   job: (id: string, logFrom = 0) => request<Job>(`/api/jobs/${id}?log_from=${logFrom}`),
+  inputPeople: (id: string, index: number) => request<FramePeople>(`/api/inputs/${id}/people?index=${index}`),
   createJobs: (body: { kind: JobKind; task: Task; input_ids: string[]; options: JobOptions }) =>
     request<Job[]>("/api/jobs", json("POST", body)),
   cancel: (id: string) => request<Job>(`/api/jobs/${id}/cancel`, json("POST")),
