@@ -353,9 +353,170 @@ def read_vmd(path):
     }
 
 
-def export_vmd(skeleton_file, target, *, arm_angle_deg=35.0, scale=12.5, face_forward=True):
+# -- fitting to an MMD model ---------------------------------------------------
+FIT_CHUNK = 64  # frames skinned at a time
+
+
+def _capture_lowest(skeleton):
+    """[T] height of the capture's lowest body point (metres; the floor is y=0)."""
+    rest_rot, rest_pos = skeleton["rest_rot"].astype(np.float64), skeleton["rest_pos"]
+    weights = skeleton["weights"]
+    top = np.argsort(-weights, axis=1)[:, :4]
+    top_weights = np.take_along_axis(weights, top, axis=1)
+    top_weights /= np.maximum(top_weights.sum(axis=1, keepdims=True), 1e-9)
+    rest_vertices = skeleton["rest_vertices"].astype(np.float64)
+    lowest = []
+    for start in range(0, len(skeleton["pos"]), FIT_CHUNK):
+        rot = skeleton["rot"][start : start + FIT_CHUNK].astype(np.float64)
+        pos = skeleton["pos"][start : start + FIT_CHUNK].astype(np.float64)
+        turn = rot @ np.transpose(rest_rot, (0, 2, 1))  # [t, J, 3, 3]
+        shift = pos - np.einsum("tjab,jb->tja", turn, rest_pos)
+        height = np.zeros((len(rot), len(rest_vertices)))
+        for k in range(4):
+            joint = top[:, k]
+            # Only the vertical row of each joint's transform is needed for the height.
+            y = np.einsum("tvb,vb->tv", turn[:, joint, 1], rest_vertices) + shift[:, joint, 1]
+            height += top_weights[None, :, k] * y
+        lowest.append(height.min(axis=1))
+    return np.concatenate(lowest)
+
+
+def _depths(parents):
+    depth = np.zeros(len(parents), int)
+    for index in range(len(parents)):
+        parent, steps = parents[index], 0
+        while parent >= 0 and steps < len(parents):
+            parent, steps = parents[parent], steps + 1
+        depth[index] = steps
+    return depth
+
+
+def model_pose(profile, rotations, centre):
+    """Forward kinematics of an MMD model under VMD bone rotations and センター moves.
+
+    MMD bones rest axis-aligned, so a bone's world rotation is its parent's times its
+    keyed local rotation (with rotation append: a share of another bone's rotation).
+    Returns world rotations [T, B, 3, 3] and positions [T, B, 3]. Leg IK stays off,
+    as in the exported file.
+    """
+    names = [str(name) for name in profile["names"]]
+    parents, rest = profile["parents"], profile["rest"].astype(np.float64)
+    count, frames = len(names), len(centre)
+    local = np.broadcast_to(np.eye(3), (frames, count, 3, 3)).copy()
+    for name, quats in rotations.items():
+        if name in names:
+            local[:, names.index(name)] = Rotation.from_quat(quats).as_matrix()
+    move = np.zeros((frames, count, 3))
+    move[:, names.index("センター")] = centre
+    order = np.argsort(_depths(parents), kind="stable")
+    effective = local.copy()
+    for bone in order:
+        source = profile["append"][bone]
+        if source >= 0 and source != bone:
+            share = Rotation.from_matrix(effective[:, source]).as_rotvec()
+            share *= float(profile["append_ratio"][bone])
+            effective[:, bone] = Rotation.from_rotvec(share).as_matrix() @ local[:, bone]
+    world = np.zeros((frames, count, 3, 3))
+    position = np.zeros((frames, count, 3))
+    for bone in order:
+        parent = parents[bone]
+        if parent < 0:
+            world[:, bone] = effective[:, bone]
+            position[:, bone] = rest[bone] + move[:, bone]
+        else:
+            world[:, bone] = world[:, parent] @ effective[:, bone]
+            offset = rest[bone] - rest[parent] + move[:, bone]
+            turned = np.einsum("tab,tb->ta", world[:, parent], offset)
+            position[:, bone] = position[:, parent] + turned
+    return world, position
+
+
+def model_lowest(profile, world, position):
+    """[T] height of the model's lowest body-surface point (MMD units)."""
+    vertices = profile["vertices"].astype(np.float64)
+    bones, weights = profile["vertex_bones"], profile["vertex_weights"]
+    rest = profile["rest"].astype(np.float64)
+    lowest = []
+    for start in range(0, len(world), FIT_CHUNK):
+        turn = world[start : start + FIT_CHUNK, :, 1]  # vertical rows only
+        place = position[start : start + FIT_CHUNK, :, 1]
+        height = np.zeros((len(turn), len(vertices)))
+        for k in range(bones.shape[1]):
+            bone = bones[:, k]
+            y = np.einsum("tvb,vb->tv", turn[:, bone], vertices - rest[bone]) + place[:, bone]
+            height += weights[None, :, k] * y
+        lowest.append(height.min(axis=1))
+    return np.concatenate(lowest)
+
+
+def model_scale(skeleton, profile):
+    """MMD units per metre that give the capture the model's leg length."""
+    names = [str(name) for name in skeleton["names"]]
+    model_names = [str(name) for name in profile["names"]]
+
+    def length(points, chain, index):
+        return sum(
+            np.linalg.norm(points[index.index(a)] - points[index.index(b)])
+            for a, b in zip(chain, chain[1:])
+        )
+
+    capture = length(skeleton["rest_pos"], ("LeftLeg", "LeftShin", "LeftFoot"), names)
+    model = length(profile["rest"], ("左足", "左ひざ", "左足首"), model_names)
+    return float(model / max(capture, 1e-6))
+
+
+def fit_centre(skeleton, profile, rotations, centre, scale):
+    """Raise or lower センター so the model's lowest point is where the capture's was.
+
+    Rotations alone pose a model with other proportions differently (shorter arms
+    leave its hands above the floor where the dancer's touched it). Each frame the
+    model's own lowest body point is put at the capture's lowest-point height:
+    on the floor during contact (feet, hands, knees, whatever is lowest) and in
+    the air during jumps.
+    """
+    world, position = model_pose(profile, rotations, centre)
+    gap = _capture_lowest(skeleton) * scale - model_lowest(profile, world, position)
+    fitted = centre.copy()
+    fitted[:, 1] += gap
+    return fitted, {
+        "scale": round(scale, 3),
+        "correction_units": [round(float(gap.min()), 2), round(float(gap.max()), 2)],
+    }
+
+
+def export_vmd(
+    skeleton_file, target, *, arm_angle_deg=35.0, scale=12.5, face_forward=True, model=None
+):
+    """Write a VMD; with ``model`` (a fit profile), fitted to that model's proportions.
+
+    Fitted: ``scale`` "auto" matches the model's leg length and ``arm_angle_deg``
+    None takes the model's own A-pose arm angle.
+    """
     skeleton = load_skeleton(skeleton_file)
+    report = {}
+    if model is not None:
+        if scale == "auto":
+            scale = model_scale(skeleton, model)
+        if arm_angle_deg is None:
+            arm_angle_deg = _model_arm_angle(model)
+    scale = 12.5 if scale == "auto" else float(scale)
+    arm_angle_deg = 35.0 if arm_angle_deg is None else float(arm_angle_deg)
     rotations, centre = mmd_motion(
         skeleton, arm_angle_deg=arm_angle_deg, scale=scale, face_forward=face_forward
     )
-    return write_vmd(target, rotations, centre, fps=float(skeleton["fps"]))
+    if model is not None:
+        centre, report = fit_centre(skeleton, model, rotations, centre, scale)
+    write_vmd(target, rotations, centre, fps=float(skeleton["fps"]))
+    return report
+
+
+def _model_arm_angle(profile):
+    """The model's rest arm angle below horizontal (A-pose), from 腕 to ひじ."""
+    names = [str(name) for name in profile["names"]]
+    angles = []
+    for side in ("左", "右"):
+        if f"{side}腕" in names and f"{side}ひじ" in names:
+            rest = profile["rest"]
+            direction = rest[names.index(f"{side}ひじ")] - rest[names.index(f"{side}腕")]
+            angles.append(np.degrees(np.arctan2(-direction[1], abs(direction[0]))))
+    return float(np.mean(angles)) if angles else 35.0

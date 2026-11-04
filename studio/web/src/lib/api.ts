@@ -92,6 +92,8 @@ export interface RefineOptions {
   lock_feet?: boolean
   /** Motion, GEM world: the floor follows the planted feet, removing slow vertical drift. */
   follow_floor?: boolean
+  /** Motion: GEM's hand contacts near the floor: hands rest on it (arm IK) and don't slide. */
+  plant_hands?: boolean
 }
 
 export interface RefineReport {
@@ -110,6 +112,7 @@ export interface RefineReport {
     planted_height_error_cm_before: number
     planted_height_error_cm_after: number
     planted_frame_fraction: number
+    hands_planted_frame_fraction?: number
   }
 }
 
@@ -126,6 +129,17 @@ export interface RefineState {
 
 export type Variant = "raw" | "refined"
 
+/** An MMD model read for fitting VMD exports (sizes in MMD units). */
+export interface MmdModel {
+  id: string
+  name: string
+  height: number
+  leg_length: number
+  arm_length: number
+  arm_angle_deg: number
+  body_vertices: number
+}
+
 export interface ExportOptions {
   variant?: Variant
   space?: "auto" | "world" | "camera"
@@ -135,9 +149,11 @@ export interface ExportOptions {
   /** FBX: skinned skeleton or shape-key animation. */
   mode?: "skeleton" | "shapes"
   /** VMD: model rest arm angle (degrees), metres-to-MMD-units scale, face forward. */
-  arm_angle_deg?: number
-  scale?: number
+  arm_angle_deg?: number | null
+  scale?: number | "auto"
   face_forward?: boolean
+  /** VMD: fit to this uploaded MMD model's proportions (an MmdModel id). */
+  model?: string
   /** glTF/FBX animation: include the capture camera (animated in world space). */
   camera?: boolean
 }
@@ -338,6 +354,9 @@ export const api = {
   refine: (id: string, options: Partial<RefineOptions>) =>
     request<Job>(`/api/jobs/${id}/refine`, json("POST", options)),
   files: (id: string) => request<FileEntry[]>(`/api/jobs/${id}/files`),
+  uploadMmdModel: (file: File) =>
+    request<MmdModel>(`/api/mmd-models?name=${encodeURIComponent(file.name)}`, { method: "POST", body: file }),
+  mmdModel: (id: string) => request<MmdModel>(`/api/mmd-models/${id}`),
   makeExport: (id: string, kind: string, options: ExportOptions = {}) =>
     request<FileEntry>(`/api/jobs/${id}/exports/${kind}`, json("POST", options)),
   uploadExport: (id: string, name: string, blob: Blob) =>

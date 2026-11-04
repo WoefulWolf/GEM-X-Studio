@@ -37,6 +37,12 @@ DETAIL_SCALE = {"smooth": 3.0, "balanced": 1.0, "sharp": 0.35}
 FK_BATCH = 32
 # Motion static-contact channels: left ankle/toe, right ankle/toe (then two hands).
 FOOT_CONTACTS = 4
+# GEM's hand channels and their 77-joint wrists (LeftHand, RightHand).
+HAND_CHANNELS = (4, 5)
+HAND_JOINTS = (14, 42)
+# GEM's hand contact means "this hand is still", not "on the floor" (a hand on a table or
+# a rail is still too): only a still hand within this reach of the floor is planted on it.
+HAND_FLOOR_REACH = 0.15
 
 
 def smoothing_config(options):
@@ -190,6 +196,9 @@ MOTION_DEFAULTS = {
     "roll_deg": 0.0,  # manual extra sideways tilt
     "depth_smoothing": 4.0,  # Gaussian width (30 fps frames) on distance-to-camera only; 0 = off
     "lock_feet": True,  # cancel horizontal sliding of planted feet by moving the root
+    # GEM's hand contacts: a still hand near the floor rests on it (arm IK) and, with
+    # lock_feet, does not slide.
+    "plant_hands": True,
     # GEM world: let the floor follow the planted feet (smoothed over ~1 s), removing the
     # slow vertical drift GEM's integrated trajectory can build up with a moving camera.
     "follow_floor": False,
@@ -268,8 +277,18 @@ def stabilize_depth(camera, sigma_frames):
     }
 
 
-def lock_feet(world, conf, *, threshold, soma_assets, device, window_frames=30, ease_frames=2.0):
-    """Stop planted feet from sliding horizontally by shifting the root.
+def lock_feet(
+    world,
+    conf,
+    *,
+    threshold,
+    soma_assets,
+    device,
+    window_frames=30,
+    ease_frames=2.0,
+    contact_joints=CONTACT_JOINTS,
+):
+    """Stop planted feet (and hands) from sliding horizontally by shifting the root.
 
     Each frame, the confidence-weighted horizontal motion of contact joints that
     are planted in both this and the previous frame is subtracted from the root.
@@ -283,7 +302,7 @@ def lock_feet(world, conf, *, threshold, soma_assets, device, window_frames=30, 
     joints = _joints(world, soma_assets=soma_assets, device=device)
     planted = conf > threshold
     held = (planted[1:] & planted[:-1]) * conf[1:]
-    step = np.diff(joints[:, list(CONTACT_JOINTS)][..., [0, 2]], axis=0)  # [T-1, 4, (x, z)]
+    step = np.diff(joints[:, list(contact_joints)][..., [0, 2]], axis=0)  # [T-1, C, (x, z)]
     weight = held.sum(axis=1)
     slide = np.where(
         weight[:, None] > 0,
@@ -527,8 +546,49 @@ def _flat_foot_heights(params, feet_ids, *, soma_assets, device):
     return np.array([joints[j, 1] - sole for j in feet_ids])
 
 
-def plant_feet(world, camera, logits, *, soma_assets, device, threshold=0.5):
-    """Flat, planted soles on y=0 using GEM's contact rig and CCD leg IK.
+def _flat_hand_heights(params, *, soma_assets, device):
+    """Wrist height above the lowest point of each hand at rest (T-pose, this body).
+
+    In the T-pose the arms lie along x, so a hand is everything beyond its wrist.
+    """
+    from gem.motion.geometry import MotionGeometry
+
+    geometry = MotionGeometry(soma_assets, device=device)
+    rest = {name: value[:, :1].clone().to(device) for name, value in params.items()}
+    for name in ("body_pose", "global_orient", "transl"):
+        rest[name].zero_()
+    _, chunk = next(iter(geometry.iter_chunks(rest)))
+    vertices = chunk["vertices"][0, 0].double().numpy()
+    joints = chunk["joints"][0, 0].double().numpy()
+    heights = []
+    for joint in HAND_JOINTS:
+        wrist = joints[joint]
+        side = np.sign(wrist[0])
+        hand = vertices[side * vertices[:, 0] > side * wrist[0]]
+        heights.append(wrist[1] - hand[:, 1].min() if len(hand) else 0.03)
+    return np.array(heights)
+
+
+def hand_contacts(world, logits, *, soma_assets, device):
+    """GEM's hand-contact confidences, kept only where the wrist is near the floor.
+
+    Returns ([T, 2] confidences, [2] wrist heights above the palm at rest).
+    """
+    conf = torch.as_tensor(logits)[0, :, list(HAND_CHANNELS)].float().sigmoid().numpy()
+    rest = _flat_hand_heights(world, soma_assets=soma_assets, device=device)
+    height = _joints(world, soma_assets=soma_assets, device=device)[:, list(HAND_JOINTS), 1]
+    near = height < rest[None] + HAND_FLOOR_REACH
+    return conf * near, rest
+
+
+def plant_feet(
+    world, camera, logits, *, soma_assets, device, threshold=0.5, feet=True, hands=None
+):
+    """Flat, planted soles (and hands) on y=0 using GEM's contact rig and CCD IK.
+
+    ``hands``: ``hand_contacts()`` output, or None to leave the arms alone. Planted
+    hands get the same treatment as feet: a target height (wrist above the palm),
+    GEM's anti-slide hold, and the arm chain solved toward it.
 
     1. Hips: a smoothed vertical shift so planted contact joints reach their
        flat-foot height: the ankle / ball height above the sole in SOMA's rest
@@ -546,22 +606,37 @@ def plant_feet(world, camera, logits, *, soma_assets, device, threshold=0.5):
 
     device = torch.device(device)
     body = PostprocessBody(SomaContactPostprocessor(soma_assets, device=device).body_model)
-    feet_ids = contact.SOMA_CONTACT_JOINT_IDS[:FOOT_CONTACTS]
+    feet_ids = list(contact.SOMA_CONTACT_JOINT_IDS[:FOOT_CONTACTS]) if feet else []
     conf = torch.as_tensor(logits)[0, :, :FOOT_CONTACTS].float().sigmoid().numpy()
+    conf = conf if feet else conf[:, :0]
+    rest = _flat_foot_heights(world, feet_ids, soma_assets=soma_assets, device=device)
+    if hands is not None:
+        feet_ids += list(HAND_JOINTS)
+        conf = np.concatenate((conf, hands[0]), axis=1)
+        rest = np.concatenate((rest, hands[1]))
     planted = conf > threshold
     params = {name: value.detach().to(device) for name, value in world.items()}
     with torch.inference_mode(), ieee_geometry(), torch.autocast(device.type, enabled=False):
         joints = contact._soma_forward(body, params)["joints"][0].cpu().numpy()
         heights = joints[:, feet_ids, 1]
-        rest = _flat_foot_heights(world, feet_ids, soma_assets=soma_assets, device=device)
         error = rest[None] - heights  # positive: the joint sits too low and must rise
-        known = planted.any(axis=1)
         before = float(np.abs(error[planted]).mean()) if planted.any() else 0.0
+        feet_count = FOOT_CONTACTS if feet else 0
+        feet_planted = planted[:, :feet_count]
+        shift = np.zeros(len(heights))
+        known = feet_planted.any(axis=1)
         if known.any():
-            # Mean vertical correction over each frame's planted joints.
+            # Mean vertical correction over each frame's planted feet, filled across gaps
+            # (feet are planted most of the time; a jump is a short gap).
             per_frame = np.zeros(len(heights))
-            per_frame[known] = (error * planted).sum(axis=1)[known] / planted.sum(axis=1)[known]
+            per_frame[known] = (error[:, :feet_count] * feet_planted).sum(axis=1)[known] / (
+                feet_planted.sum(axis=1)[known]
+            )
             shift = _fill_and_smooth(per_frame, known)
+        # Hands never move the body: GEM's hand contact means "still", and a still hand
+        # above another, lower support would push that support into the floor. The arm
+        # reaches a planted hand down to the floor instead (IK below), when it can.
+        if planted.any():
             params["transl"][0, :, 1] += torch.as_tensor(
                 shift, dtype=params["transl"].dtype, device=device
             )
@@ -569,7 +644,11 @@ def plant_feet(world, camera, logits, *, soma_assets, device, threshold=0.5):
         joints_t = forward["joints"]
         world_mat = forward["transforms"][..., 1:, :, :]
         targets = joints_t.clone()
-        weight = torch.as_tensor(conf, device=device)
+        hold = conf.copy()
+        # Hands hold only while planted: their contacts are brief, and a soft hold on
+        # every frame would bend the arms throughout.
+        hold[:, feet_count:] *= planted[:, feet_count:]
+        weight = torch.as_tensor(hold, device=device)
         rest_t = torch.as_tensor(rest, dtype=targets.dtype, device=device)
         feet_index = list(feet_ids)
         for frame in range(1, targets.shape[1]):
@@ -585,12 +664,30 @@ def plant_feet(world, camera, logits, *, soma_assets, device, threshold=0.5):
         targets[0, :, feet_index, 1] = y
         parents = list(body.parents)
         local = contact._world_to_local(world_mat, parents)
-        local = contact._solve_chain(
-            local, parents, targets[..., (69, 70), :], (3, 4), contact.SOMA_LEFT_LEG_CHAIN
-        )
-        local = contact._solve_chain(
-            local, parents, targets[..., (74, 75), :], (3, 4), contact.SOMA_RIGHT_LEG_CHAIN
-        )
+        if feet:
+            local = contact._solve_chain(
+                local, parents, targets[..., (69, 70), :], (3, 4), contact.SOMA_LEFT_LEG_CHAIN
+            )
+            local = contact._solve_chain(
+                local, parents, targets[..., (74, 75), :], (3, 4), contact.SOMA_RIGHT_LEG_CHAIN
+            )
+        if hands is not None:
+            # GEM's arm chains end at the wrist (chain index 4). The solver is not exact
+            # where the target is the wrist itself, so keep its result only on frames
+            # whose hand target moved: planted (and the frame after, still held) or
+            # lifted out of the floor.
+            for side, (wrist, chain) in enumerate(
+                zip(HAND_JOINTS, (contact.SOMA_LEFT_ARM_CHAIN, contact.SOMA_RIGHT_ARM_CHAIN))
+            ):
+                column = feet_count + side
+                held = planted[:, column] | np.concatenate(([False], planted[:-1, column]))
+                lifted = joints_t[0, :, wrist, 1].cpu().numpy() < rest[column]
+                moved = torch.as_tensor(held | lifted, device=device)[None, :, None, None, None]
+                # The solver writes into its input: give it a copy.
+                solved = contact._solve_chain(
+                    local.clone(), parents, targets[..., (wrist,), :], (4,), chain
+                )
+                local = torch.where(moved, solved, local)
         procedural = body.soma.procedural_transforms
         absolute = contact.matrix.get_rotation(local).reshape(-1, 77, 3, 3)
         relative = remove_joint_orient_local(
@@ -618,8 +715,12 @@ def plant_feet(world, camera, logits, *, soma_assets, device, threshold=0.5):
     stats = {
         "planted_height_error_cm_before": round(before * 100, 2),
         "planted_height_error_cm_after": round(after * 100, 2),
-        "planted_frame_fraction": round(float(planted.any(axis=1).mean()), 3),
+        "planted_frame_fraction": round(float(planted[:, :feet_count].any(axis=1).mean()), 3),
     }
+    if hands is not None:
+        stats["hands_planted_frame_fraction"] = round(
+            float(planted[:, feet_count:].any(axis=1).mean()), 3
+        )
     return planted_world, planted_camera, stats
 
 
@@ -699,15 +800,42 @@ def refine_motion(result, options, *, soma_assets, device, progress=None, stage=
         progress=progress,
         follow=follow,
     )
+    hands = None
+    if options["plant_hands"] and logits is not None and logits.shape[-1] > max(HAND_CHANNELS):
+        hands = hand_contacts(world, logits, soma_assets=soma_assets, device=device)
     if options["lock_feet"] and logits is not None:
-        say("Locking planted feet")
+        say("Locking planted feet" + (" and hands" if hands is not None else ""))
+        lock_conf, lock_joints = conf, CONTACT_JOINTS
+        if hands is not None:
+            lock_conf = np.concatenate((conf, hands[0]), axis=1)
+            lock_joints = CONTACT_JOINTS + HAND_JOINTS
         world, report["lock_feet"] = lock_feet(
-            world, conf, threshold=threshold, soma_assets=soma_assets, device=device
+            world,
+            lock_conf,
+            threshold=threshold,
+            soma_assets=soma_assets,
+            device=device,
+            contact_joints=lock_joints,
         )
-    if options["plant_feet"] and logits is not None:
-        say("Planting feet (hip height + leg IK)")
+    if (options["plant_feet"] or hands is not None) and logits is not None:
+        say(
+            "Planting "
+            + " and ".join(
+                part
+                for part, on in (("feet", options["plant_feet"]), ("hands", hands is not None))
+                if on
+            )
+            + " (hip height + IK)"
+        )
         world, camera, report["plant_feet"] = plant_feet(
-            world, camera, logits, soma_assets=soma_assets, device=device, threshold=threshold
+            world,
+            camera,
+            logits,
+            soma_assets=soma_assets,
+            device=device,
+            threshold=threshold,
+            feet=bool(options["plant_feet"]),
+            hands=hands,
         )
         # Planting moves the soles to their anatomical height; settle the floor again.
         world, _ = _place(

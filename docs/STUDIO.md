@@ -217,7 +217,7 @@ footwork. Motion's Refine tab offers:
   own gravity estimate averaged over the clip. It is exact for a still camera and
   has no drift. **GEM world** keeps GEM's integrated motion, for moving cameras.
   Moving-camera runs are refined this way automatically, with **Follow the floor**
-  (*Feet & floor*) on and auto-level off: GEM's world is already gravity-aligned
+  (*Floor & contacts*) on and auto-level off: GEM's world is already gravity-aligned
   then, but its height can drift as the subject moves away (on a ViPE test clip
   her feet rose 0.8 m), which also lifts the derived camera. Following the floor
   takes the floor height from the planted feet, smoothed over about a second, so
@@ -249,6 +249,17 @@ footwork. Motion's Refine tab offers:
   the foot sit at their anatomical flat-foot heights (from SOMA's rest pose, the
   same for both feet). *Contact sensitivity* sets how many frames count as
   planted.
+- *Plant hands on the floor* (on by default): GEM also predicts contact for both
+  hands. GEM's hand contact means the hand is still, not that it is on the floor
+  (a hand on a table is still too), so only a still hand within 15 cm of the
+  floor is planted. Its arm then reaches down so the wrist sits at its height
+  above the palm (from SOMA's rest pose), GEM's anti-slide hold keeps it in
+  place, and *Stop foot sliding* includes it. Hands never move the body: a
+  still hand above a lower support would otherwise push that support into the
+  floor. Outside contacts, a hand that has sunk into the floor is lifted out of
+  it by the same arm IK. On a breakdance clip with brief hand contacts, planted
+  hands slid 8.7 instead of 25 mm per frame; a hand stays above the floor where
+  the arm cannot reach further.
 - *Body height*: 0 rests the soles exactly on the floor; positive values lift the body
   above it (e.g. to leave room for shoe soles), negative values sink it in.
 - *Smoothing*: the same adaptive filter as for Pose, off by default since Motion
@@ -300,14 +311,27 @@ through world-space deltas, so SOMA's extra spine and neck joints fold into the
 MMD bones. Played back on an MMD-style skeleton, the ankles match GEM exactly and
 the head and wrists within about 1.5 cm. Options:
 
-- *Model arm angle*: MMD models rest in an A-pose, typically 30–40° (default
-  35°). Use 0° for T-pose models.
-- *Scale*: metres to MMD units (default 1 unit = 8 cm).
+- *Fit to model* (optional, recommended): choose the model's .pmx. A model has
+  other proportions than the dancer (the Tda Append Miku tested has 21% shorter
+  arms and 7% longer legs), and rotations alone then pose it differently: on a
+  breakdance clip with the dancer on their hands, the model floated 11–35 cm
+  above the floor. Fitted, each frame センター is raised or lowered so the
+  model's own lowest body point (hands, feet, knees: whatever is lowest) is
+  where the dancer's was, on the floor during contact and in the air during
+  jumps; the arm angle comes from the model and the scale from its leg length.
+  Studio reads only the bones and the body mesh (no hair, skirts or other
+  accessories) and keeps a small profile in `studio_data/mmd_models`; the .pmx
+  itself is not stored. The model is remembered for later exports.
+- *Model arm angle* (without a model): MMD models rest in an A-pose, typically
+  30–40° (default 35°). Use 0° for T-pose models.
+- *Scale* (without a model): metres to MMD units (default 1 unit = 8 cm).
 - *Face the camera at the start*: turns the motion so the dancer faces the MMD
   camera.
 
 The motion is keyed at 30 fps. Leg IK (左足ＩＫ, 右足ＩＫ, つま先ＩＫ) is switched off
-in the file so the legs follow the capture exactly.
+in the file so the legs follow the capture exactly. A model has no arm IK, so
+with much shorter arms than the dancer it cannot have both hands and feet on the
+floor at once; fitted, its lowest point stays down.
 
 Exports are written to the run's `exports` folder (**Folder** opens it). In the
 app window, *Save* opens a native Save As dialog.

@@ -10,6 +10,7 @@ import json
 import mimetypes
 import os
 import secrets
+import struct
 import subprocess
 import sys
 import threading
@@ -19,7 +20,7 @@ from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import camera_path, inputs, models, subjects, system
+from . import camera_path, inputs, mmd_model, models, subjects, system
 from .exports import EXPORTERS, find_blender, load_faces, load_slots
 from .jobs import JobManager, job_files
 from .paths import (
@@ -439,6 +440,7 @@ def create_app(*, port, native=False, dev=False, token=None):
             "depth_smoothing",
             "lock_feet",
             "follow_floor",
+            "plant_hands",
         }
         try:
             return jobs.refine(job_id, {k: v for k, v in options.items() if k in allowed})
@@ -516,8 +518,20 @@ def create_app(*, port, native=False, dev=False, token=None):
             else:
                 raise HTTPException(409, "Skeleton exports are available for Body Motion runs")
         suffix = []
+        fit_model, arm_angle, vmd_scale = None, options.get("arm_angle_deg", 35), None
         if kind == "vmd":
             name, space = "motion.vmd", "world"
+            vmd_scale = options.get("scale", 12.5)
+            if options.get("model"):
+                try:
+                    fit_model = mmd_model.load_profile(str(options["model"]))
+                except KeyError:
+                    raise HTTPException(
+                        404, "That MMD model is no longer stored; choose it again"
+                    ) from None
+                suffix.append("fit")
+            elif vmd_scale == "auto" or arm_angle is None:
+                raise HTTPException(400, "Automatic scale and arm angle need a model to fit to")
         elif kind == "gltf_skeleton":
             name = "animation_skeleton.glb"
         else:
@@ -547,13 +561,17 @@ def create_app(*, port, native=False, dev=False, token=None):
         def work():
             skeleton = ensure_skeleton(job_id, variant, space) if skeletal else None
             if kind == "vmd":
-                return rigging.export_vmd(
+                report = rigging.export_vmd(
                     skeleton,
                     partial,
-                    arm_angle_deg=float(options.get("arm_angle_deg", 35)),
-                    scale=float(options.get("scale", 12.5)),
+                    arm_angle_deg=None if arm_angle is None else float(arm_angle),
+                    scale="auto" if vmd_scale == "auto" else float(vmd_scale),
                     face_forward=bool(options.get("face_forward", True)),
+                    model=fit_model,
                 )
+                if report:
+                    print(f"VMD fitted to the model: {report}", flush=True)
+                return partial
             if kind == "gltf_skeleton":
                 return rigging.export_skinned_gltf(
                     skeleton, source, partial, step=step, naming=naming, camera=camera, space=space
@@ -593,6 +611,31 @@ def create_app(*, port, native=False, dev=False, token=None):
             raise HTTPException(500, str(error)) from None
         os.replace(partial, target)
         return next(f for f in job_files(job_id) if f["name"] == name)
+
+    # -- MMD models (fit a VMD export to a model's proportions) ---------------
+    @app.post("/api/mmd-models")
+    async def upload_mmd_model(request: Request, name: str):
+        """Read an uploaded .pmx into a fit profile; the .pmx itself is not kept."""
+        if Path(name).suffix.lower() != ".pmx":
+            raise HTTPException(400, "Choose an MMD model (.pmx)")
+        mmd_model.MODELS_DIR.mkdir(parents=True, exist_ok=True)
+        temporary = mmd_model.MODELS_DIR / f"upload-{secrets.token_hex(4)}.pmx"
+        try:
+            with temporary.open("wb") as handle:
+                async for chunk in request.stream():
+                    handle.write(chunk)
+            return await asyncio.to_thread(mmd_model.save_model, temporary, Path(name).name)
+        except (ValueError, struct.error, IndexError) as error:
+            raise HTTPException(400, f"Could not read this model: {error}") from None
+        finally:
+            temporary.unlink(missing_ok=True)
+
+    @app.get("/api/mmd-models/{model_id}")
+    def get_mmd_model(model_id: str):
+        try:
+            return mmd_model.model_info(model_id)
+        except KeyError:
+            raise HTTPException(404, "MMD model not found") from None
 
     @app.post("/api/jobs/{job_id}/exports-upload")
     async def upload_export(job_id: str, request: Request, name: str):

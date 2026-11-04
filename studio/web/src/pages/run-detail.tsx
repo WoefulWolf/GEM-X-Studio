@@ -14,6 +14,7 @@ import {
   RotateCcw,
   Sparkles,
   Square,
+  Upload,
   X,
 } from "lucide-react"
 import { useEffect, useRef, useState, type ReactNode } from "react"
@@ -38,6 +39,7 @@ import {
   type ExportOptions,
   type FileEntry,
   type Job,
+  type MmdModel,
   type Preview,
   type RefineOptions,
   type Variant,
@@ -422,6 +424,26 @@ function ExportPanel({
   const [armAngle, setArmAngle] = useState(35)
   const [mmdScale, setMmdScale] = useState("12.5")
   const [faceForward, setFaceForward] = useState(true)
+  // MMD model the VMD is fitted to (remembered across runs); none: standard proportions.
+  const [mmdModelId, setMmdModelId] = useState<string | null>(() => readStored(MMD_MODEL_KEY, null))
+  const mmdModel = useQuery({
+    queryKey: ["mmd-model", mmdModelId],
+    queryFn: () => api.mmdModel(mmdModelId!),
+    enabled: !!mmdModelId,
+    retry: false,
+    staleTime: Infinity,
+  })
+  const fitModel = mmdModelId && mmdModel.data ? mmdModel.data : null
+  const chooseMmdModel = (model: MmdModel | null) => {
+    setMmdModelId(model?.id ?? null)
+    writeStored(MMD_MODEL_KEY, model?.id ?? null)
+    if (model) queryClient.setQueryData(["mmd-model", model.id], model)
+  }
+  useEffect(() => {
+    // The stored profile is gone (data folder cleared): forget it.
+    if (mmdModel.isError) chooseMmdModel(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mmdModel.isError])
   // A moving camera (ViPE or background estimate) is worth exporting by default.
   const movingCamera = !!preview.camera?.mode && preview.camera.mode !== "static"
   const [includeCamera, setIncludeCamera] = useState(movingCamera)
@@ -662,36 +684,55 @@ function ExportPanel({
         <PanelSection
           id="export-mmd"
           title="MMD (MikuMikuDance)"
-          summary={`${armAngle}° arms · ${mmdScale === "12.5" ? "standard scale" : `scale ${mmdScale}`}`}
+          summary={
+            fitModel
+              ? `Fitted to ${fitModel.name}`
+              : `${armAngle}° arms · ${mmdScale === "12.5" ? "standard scale" : `scale ${mmdScale}`}`
+          }
         >
           <p className="text-[11px] leading-relaxed text-muted-foreground">
             VMD motion for any MMD model, matched by standard bone names (センター, 上半身, 左腕, 左足…, fingers). Leg IK is
             switched off so the legs follow the capture exactly. The skeleton glTF/FBX above can also use MMD bone
             names.
           </p>
-          <RangeField
-            label="Model arm angle (A-pose)"
-            value={armAngle}
-            display={`${armAngle}°`}
-            min={0}
-            max={50}
-            step={1}
-            left="T-pose (0°)"
-            right="Most MMD models: 30–40°"
-            onChange={setArmAngle}
+          <MmdModelField
+            model={fitModel}
+            loading={!!mmdModelId && mmdModel.isLoading}
+            onChange={chooseMmdModel}
           />
-          <OptionField label="Scale">
-            <Select value={mmdScale} onValueChange={setMmdScale}>
-              <SelectTrigger size="sm" className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="12.5">Standard · 1 unit = 8 cm</SelectItem>
-                <SelectItem value="10">Smaller model · 1 unit = 10 cm</SelectItem>
-                <SelectItem value="15">Larger model · 1 unit ≈ 6.7 cm</SelectItem>
-              </SelectContent>
-            </Select>
-          </OptionField>
+          {fitModel ? (
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
+              Arm angle ({fitModel.arm_angle_deg}°) and scale come from the model; scale matches its legs (
+              {fitModel.leg_length} units). Each frame the model&apos;s lowest point is put where the dancer&apos;s
+              was, so hands, feet or knees meet the floor despite different proportions.
+            </p>
+          ) : (
+            <>
+              <RangeField
+                label="Model arm angle (A-pose)"
+                value={armAngle}
+                display={`${armAngle}°`}
+                min={0}
+                max={50}
+                step={1}
+                left="T-pose (0°)"
+                right="Most MMD models: 30–40°"
+                onChange={setArmAngle}
+              />
+              <OptionField label="Scale">
+                <Select value={mmdScale} onValueChange={setMmdScale}>
+                  <SelectTrigger size="sm" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="12.5">Standard · 1 unit = 8 cm</SelectItem>
+                    <SelectItem value="10">Smaller model · 1 unit = 10 cm</SelectItem>
+                    <SelectItem value="15">Larger model · 1 unit ≈ 6.7 cm</SelectItem>
+                  </SelectContent>
+                </Select>
+              </OptionField>
+            </>
+          )}
           <SwitchField
             label="Face the camera at the start"
             checked={faceForward}
@@ -701,10 +742,15 @@ function ExportPanel({
             <ActionRow
               icon={Film}
               title="VMD motion (.vmd)"
-              hint="MikuMikuDance, MMM, Blender mmd_tools · 30 fps"
+              hint={`${fitModel ? `Fitted to ${fitModel.name} · ` : ""}MikuMikuDance, MMM, mmd_tools · 30 fps`}
               busy={busy === "vmd"}
               onClick={() =>
-                serverExport("vmd", { arm_angle_deg: armAngle, scale: Number(mmdScale), face_forward: faceForward })
+                serverExport(
+                  "vmd",
+                  fitModel
+                    ? { model: fitModel.id, arm_angle_deg: null, scale: "auto", face_forward: faceForward }
+                    : { arm_angle_deg: armAngle, scale: Number(mmdScale), face_forward: faceForward },
+                )
               }
             />
           </ActionList>
@@ -878,6 +924,7 @@ const MOTION_DEFAULTS: RefineOptions = {
   roll_deg: 0,
   depth_smoothing: 4,
   lock_feet: true,
+  plant_hands: true,
 }
 
 const signed = (value: number, unit: string) => `${value > 0 ? "+" : ""}${value.toFixed(1)}${unit}`
@@ -930,7 +977,7 @@ function MotionRefinePanel({ job, onRefined }: { job: Job; onRefined: () => void
         <p className="text-[11px] leading-relaxed text-muted-foreground">
           {options.world === "anchor"
             ? "Exact for a camera that did not move: the camera-space motion under GEM's gravity estimate. No drift."
-            : "GEM's integrated world motion, for a camera that moved. Its height can drift; Follow the floor (Feet & floor) removes that."}
+            : "GEM's integrated world motion, for a camera that moved. Its height can drift; Follow the floor (Floor & contacts) removes that."}
           {options.world === "anchor" && !fixedCamera && (
             <span className="mt-1 block text-amber-600 dark:text-amber-400">
               This run assumed a moving camera; anchoring is only correct if it was actually still.
@@ -965,7 +1012,7 @@ function MotionRefinePanel({ job, onRefined }: { job: Job; onRefined: () => void
         </p>
         <SwitchField
           label="Stop foot sliding"
-          hint="Keeps planted feet in place by moving the body; turn off for gliding footwork"
+          hint="Keeps planted feet (and planted hands) in place by moving the body; turn off for gliding footwork"
           checked={!!options.lock_feet}
           onChange={(lock_feet) => set({ lock_feet })}
         />
@@ -1023,9 +1070,10 @@ function MotionRefinePanel({ job, onRefined }: { job: Job; onRefined: () => void
 
       <PanelSection
         id="refine-feet"
-        title="Feet & floor"
+        title="Floor & contacts"
         summary={[
           options.plant_feet ? `Planted · ${Math.round(sensitivity * 100)}%` : "Not planted",
+          options.plant_hands && "hands too",
           options.world === "gem" && options.follow_floor && "floor follows",
           offset && `body ${signed(offset, " cm")}`,
         ]
@@ -1037,6 +1085,12 @@ function MotionRefinePanel({ job, onRefined }: { job: Job; onRefined: () => void
           hint="Hip height + leg IK on predicted foot contacts"
           checked={!!options.plant_feet}
           onChange={(plant_feet) => set({ plant_feet })}
+        />
+        <SwitchField
+          label="Plant hands on the floor"
+          hint="GEM's hand contacts: a still hand near the floor rests on it (arm IK) and doesn't slide"
+          checked={!!options.plant_hands}
+          onChange={(plant_hands) => set({ plant_hands })}
         />
         {options.world === "gem" && (
           <SwitchField
@@ -1055,7 +1109,7 @@ function MotionRefinePanel({ job, onRefined }: { job: Job; onRefined: () => void
           step={0.05}
           left="Fewer frames planted"
           right="More frames planted"
-          disabled={!options.plant_feet}
+          disabled={!options.plant_feet && !options.plant_hands}
           onChange={(value) => set({ contact_threshold: Number((1 - value).toFixed(2)) })}
         />
         <RangeField
@@ -1128,6 +1182,8 @@ function MotionRefinePanel({ job, onRefined }: { job: Job; onRefined: () => void
                 · planted-foot height error {plant.planted_height_error_cm_before} →{" "}
                 <span className="font-medium text-foreground">{plant.planted_height_error_cm_after} cm</span> · feet
                 planted in {Math.round(plant.planted_frame_fraction * 100)}% of frames
+                {plant.hands_planted_frame_fraction != null &&
+                  `, hands in ${Math.round(plant.hands_planted_frame_fraction * 100)}%`}
               </>
             )}
           </>
@@ -1182,6 +1238,82 @@ function ApplyBar(props: {
         </div>
       )}
     </div>
+  )
+}
+
+const MMD_MODEL_KEY = "gem-studio:mmd-model"
+
+/** Optional MMD model (.pmx) the VMD export is fitted to. */
+function MmdModelField(props: {
+  model: MmdModel | null
+  loading: boolean
+  onChange: (model: MmdModel | null) => void
+}) {
+  const input = useRef<HTMLInputElement>(null)
+  const [uploading, setUploading] = useState(false)
+  const upload = async (file: File) => {
+    setUploading(true)
+    try {
+      props.onChange(await api.uploadMmdModel(file))
+    } catch (error) {
+      toast.error("Could not read the model", { description: (error as Error).message })
+    } finally {
+      setUploading(false)
+      if (input.current) input.current.value = ""
+    }
+  }
+  const { model } = props
+  return (
+    <OptionField label="Fit to model">
+      <input
+        ref={input}
+        type="file"
+        accept=".pmx"
+        className="hidden"
+        onChange={(event) => event.target.files?.[0] && upload(event.target.files[0])}
+      />
+      {model ? (
+        <div className="flex items-center gap-2 rounded-lg border p-2">
+          <div className="min-w-0 flex-1 text-[11px] leading-snug">
+            <div className="truncate font-medium text-foreground" title={model.name}>
+              {model.name}
+            </div>
+            <div className="text-muted-foreground tabular-nums">
+              {model.height} units tall · legs {model.leg_length} · arms {model.arm_length} ·{" "}
+              {model.arm_angle_deg}° A-pose
+            </div>
+          </div>
+          <Button variant="outline" size="sm" disabled={uploading} onClick={() => input.current?.click()}>
+            {uploading ? <Loader2 className="animate-spin" /> : <Upload />} Change
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8"
+            aria-label="Don't fit to a model"
+            onClick={() => props.onChange(null)}
+          >
+            <X />
+          </Button>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-1.5">
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full"
+            disabled={uploading || props.loading}
+            onClick={() => input.current?.click()}
+          >
+            {uploading || props.loading ? <Loader2 className="animate-spin" /> : <Upload />} Choose model (.pmx)…
+          </Button>
+          <p className="text-[11px] leading-relaxed text-muted-foreground">
+            Optional. Models have other proportions than the dancer (shorter arms, longer legs), so the motion alone can
+            leave them floating or sinking. Studio reads only the bones and body mesh; the file isn&apos;t kept.
+          </p>
+        </div>
+      )}
+    </OptionField>
   )
 }
 
