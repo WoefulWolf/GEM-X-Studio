@@ -173,6 +173,14 @@ across restarts.
   field of view as the video); orbit freely, and the crosshair button returns to
   the camera's view.
 
+  A refined fixed-camera result shows its world copy here, the same body as the
+  World view: the floor placement, contact planting and *Stop contact sliding*
+  move only that copy, so the camera-space copy would bob against the floor by a
+  few cm. The camera then sits at one pose (the median of its per-frame fit), so a
+  camera that wasn't held level shows as a slightly rolled frustum over a level
+  floor. A raw result keeps the camera-space copy, which GEM's own world can drift
+  away from on a fixed camera.
+
   With a moving camera (ViPE or *Estimate rotation from background*) the 3D view
   shows the world instead: the camera moves through it as a frustum along its
   path (yellow), and the subject along hers (blue). While the crosshair is on, the
@@ -280,7 +288,8 @@ footwork. Motion's Refine tab offers:
     other limbs. Arms and legs reach with exact two-bone IK
     (the elbow and knee keep bending the way they did); the body moves only
     where a limb cannot reach. The camera-space motion is untouched, so the
-    overlay keeps matching the video.
+    overlay keeps matching the video (the 3D view of a refined result shows the
+    world copy).
   - On the breakdance test clip (mostly on its hands), a hand is planted on
     73% of frames at 5 cm reach and 82% at 10 cm: palms within 0.5 cm of the
     floor, flat, sliding 1.5 mm per frame (25 before). On standing dance clips,

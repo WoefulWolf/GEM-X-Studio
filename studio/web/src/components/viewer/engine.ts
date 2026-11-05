@@ -89,6 +89,8 @@ export class ViewerEngine {
   private height = 1
   private floor: number | null = null
   private framedFor: ViewMode | null = null
+  // A fixed capture camera's single pose in the world (the 3D view of a refined result).
+  private fixedPose: { rotation: THREE.Matrix3; position: THREE.Vector3 } | null | undefined
   follow = true
   /** Called when the view stops following (the user took over the camera), so the UI can show it. */
   onFollowChange?: (follow: boolean) => void
@@ -186,6 +188,7 @@ export class ViewerEngine {
     // The floor is the lowest point seen so far (where no ground is known): start it again on
     // the new motion, or a previous result that dipped lower leaves this one hovering above it.
     this.floor = null
+    this.fixedPose = undefined
     store.onLoad = () => {
       this.dirty = true
     }
@@ -255,7 +258,7 @@ export class ViewerEngine {
   private instances(frame = this.frame): PreviewInstance[] {
     const record = this.preview.frames[frame]
     if (!record) return []
-    return (this.mode === "world" || this.movingCamera() ? record.world : record.instances) ?? []
+    return (this.inWorld() ? record.world : record.instances) ?? []
   }
 
   private prefetch() {
@@ -360,7 +363,8 @@ export class ViewerEngine {
     const { centroid, minY } = this.updateMeshes(this.frame)
     const frame = this.cameraFrame()
     const moving = this.movingCamera()
-    if (this.mode === "world" || moving) {
+    const inWorld = this.inWorld()
+    if (inWorld) {
       this.root.scale.set(1, 1, 1)
       this.root.quaternion.identity()
     } else if (this.mode === "camera3d" && frame) {
@@ -394,7 +398,7 @@ export class ViewerEngine {
     // Orbit views
     // A known floor (anchored worlds: y=0) beats the lowest point seen so far,
     // which sits below the soles whenever a frame dips slightly.
-    const ground = this.mode === "world" || moving ? this.preview.ground : null
+    const ground = inWorld ? this.preview.ground : null
     if (centroid && Number.isFinite(minY)) {
       if (this.floor == null || this.framedFor !== this.mode) this.floor = minY
       this.floor = Math.min(this.floor, minY)
@@ -441,7 +445,7 @@ export class ViewerEngine {
       this.cameraPath.visible = moving && !throughCamera
     }
     if (this.trajectory) {
-      this.trajectory.visible = this.mode === "world" || moving
+      this.trajectory.visible = inWorld
       this.trajectory.position.y = (this.floor ?? 0) + 0.004
       this.trajectory.geometry.setDrawRange(0, this.frame + 1)
     }
@@ -487,11 +491,59 @@ export class ViewerEngine {
 
   /**
    * True in the 3D view for a moving camera (ViPE or background estimate): the scene is the
-   * world and the camera moves through it. A fixed camera keeps the camera-centred view.
+   * world and the camera moves through it.
    */
   private movingCamera() {
     const mode = this.preview.camera?.mode
     return this.mode === "camera3d" && !!this.preview.camera_path && !!mode && mode !== "static"
+  }
+
+  /**
+   * Whether the current view draws the world copy of the motion. World always; 3D for a
+   * moving camera, and for a fixed one once the result is refined (a known floor): the floor,
+   * planting and contact fixes live in the world copy only, so the camera-space copy would
+   * bob against the floor. A raw fixed-camera result keeps the camera-centred copy, which
+   * GEM's integrated world can drift away from.
+   */
+  private inWorld() {
+    if (this.mode === "world" || this.movingCamera()) return true
+    return this.mode === "camera3d" && this.preview.ground != null && !!this.staticPose()
+  }
+
+  /**
+   * One pose for a fixed camera: the median of its per-frame fit (which also absorbs the
+   * refine's small per-frame body shifts) and the mean of its rotations.
+   */
+  private staticPose() {
+    if (this.fixedPose !== undefined) return this.fixedPose
+    const path = this.preview.camera_path
+    this.fixedPose = null
+    if (!path?.rotation?.length || !path.position?.length) return null
+    const median = (axis: number) => {
+      const values = path.position.map((point) => point[axis]).sort((a, b) => a - b)
+      return values[Math.floor(values.length / 2)]
+    }
+    const sum = new THREE.Quaternion(0, 0, 0, 0)
+    let first: THREE.Quaternion | null = null
+    for (const rows of path.rotation) {
+      const q = new THREE.Quaternion().setFromRotationMatrix(
+        new THREE.Matrix4().setFromMatrix3(
+          new THREE.Matrix3().set(...(rows as [number, number, number, number, number, number, number, number, number])),
+        ),
+      )
+      first ??= q.clone()
+      const sign = first.dot(q) < 0 ? -1 : 1
+      sum.set(sum.x + sign * q.x, sum.y + sign * q.y, sum.z + sign * q.z, sum.w + sign * q.w)
+    }
+    const rotation = new THREE.Matrix3().setFromMatrix4(new THREE.Matrix4().makeRotationFromQuaternion(sum.normalize()))
+    this.fixedPose = { rotation, position: new THREE.Vector3(median(0), median(1), median(2)) }
+    return this.fixedPose
+  }
+
+  /** Where the capture camera sits in the drawn scene (null: the camera-centred origin). */
+  private capturePose(display = false) {
+    if (this.movingCamera()) return this.cameraPose(this.frame, display)
+    return this.inWorld() && this.mode === "camera3d" ? this.staticPose() : null
   }
 
   /** Capture-camera pose at ``frame``: exact, or the smoothed copy used for drawing. */
@@ -534,8 +586,8 @@ export class ViewerEngine {
    */
   private frameCaptureCamera(centroid: THREE.Vector3) {
     // A moving camera is placed at its exact pose for this frame, so the subject lines up
-    // with the video; a fixed camera sits at the origin of the camera-centred view.
-    const pose = this.movingCamera() ? this.cameraPose(this.frame) : null
+    // with the video; a fixed one at its pose in the world, or the camera-centred origin.
+    const pose = this.capturePose()
     const origin = pose?.position ?? new THREE.Vector3()
     const forward = new THREE.Vector3(0, 0, 1).applyMatrix3(pose?.rotation ?? this.displayMatrix()).normalize()
     const distance = Math.max(0.5, centroid.clone().sub(origin).dot(forward))
@@ -556,7 +608,7 @@ export class ViewerEngine {
 
   /** Maps stored vertex coordinates to the current view's display coordinates. */
   private displayMatrix(): THREE.Matrix3 {
-    if (this.mode === "world" || this.movingCamera()) return IDENTITY
+    if (this.inWorld()) return IDENTITY
     if (this.mode === "camera3d") return this.cameraFrame() ?? CV_TO_GL_MATRIX
     return CV_TO_GL_MATRIX
   }
@@ -575,8 +627,8 @@ export class ViewerEngine {
     }
     const [width, height] = this.preview.image_size
     const depth = 0.6
-    // A moving camera sits at its (smoothed) pose; a fixed one at the origin.
-    const pose = this.movingCamera() ? this.cameraPose(this.frame, true) : null
+    // A moving camera sits at its (smoothed) pose; a fixed one at its pose or the origin.
+    const pose = this.capturePose(true)
     const rotation = pose?.rotation ?? this.displayMatrix()
     const origin = pose?.position ?? new THREE.Vector3()
     const corners = [
