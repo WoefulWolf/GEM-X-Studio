@@ -244,30 +244,57 @@ footwork. Motion's Refine tab offers:
   the floor is level to 0.4° and the centre of mass sits over the feet. *Lean
   toward/away from camera* and *Sideways lean* add a manual correction on top;
   check it from the side in the World view.
-- *Plant feet flat on the floor* (on by default): adjusts hip height and runs
-  GEM's CCD leg IK so that during predicted foot contact the ankle and ball of
-  the foot sit at their anatomical flat-foot heights (from SOMA's rest pose, the
-  same for both feet). *Contact sensitivity* sets how many frames count as
-  planted.
-- *Plant hands on the floor* (on by default): GEM also predicts contact for both
-  hands. GEM's hand contact means the hand is still, not that it is on the floor
-  (a hand on a table is still too), so only a still hand within 15 cm of the
-  floor is planted. Its arm then reaches down so the wrist sits at its height
-  above the palm (from SOMA's rest pose), GEM's anti-slide hold keeps it in
-  place, and *Stop contact sliding* includes it. Hands never move the body: a
-  still hand above a lower support would otherwise push that support into the
-  floor. Outside contacts, a hand that has sunk into the floor is lifted out of
-  it by the same arm IK. On a breakdance clip with brief hand contacts, planted
-  hands slid 8.7 instead of 25 mm per frame; a hand stays above the floor where
-  the arm cannot reach further.
+- *Plant feet* and *Plant hands on the floor* (both on by default): floor
+  contacts for each palm and for each foot's heel and toes.
+  - *Detection.* Each frame, every patch is measured against the floor: the
+    height of its lowest point and how fast it moves sideways. It is planted
+    when it is within *Contact reach* of the floor and nearly still, or when
+    GEM predicts that joint as static and it is within 15 cm (GEM's "static"
+    also covers a hand on a table, hence the distance). Contacts shorter than 3
+    frames are dropped and 1–2 frame gaps closed. *Contact sensitivity* sets
+    both GEM's threshold and how still a patch must be: GEM's estimate of a
+    planted hand drifts more than of a planted foot, so hands are allowed more
+    (0.8 m/s at 50%) than feet (0.35 m/s).
+  - *Contact reach* (default 5 cm): raise it when hands or feet hover above
+    the floor instead of resting on it, much like raising the floor; more
+    frames are then found planted and put down.
+  - *Feet.* With heel and toes both planted the foot lies flat. A foot tilted
+    more than 15° is on one end only: the toes stay pinned while the heel turns
+    (heel raises, pivots on the ball), or the reverse. Heel and toes near the
+    floor but moving together are a slide: the foot stays on the floor
+    without being pinned.
+  - *Planting.* A planted patch is pinned where it touched down (the median
+    of its positions over the contact), put on the floor and eased in and out
+    over 3 frames. A hand on the floor always lies flat (nobody holds their
+    weight on a bent wrist): within 2 cm the palm is fully flat, fading out by
+    6 cm, whether the hand is planted or just landing or pushing off, and the
+    arm lifts it just enough to keep the palm out of the floor. Flat means the
+    palm surface itself (it sits ~9° off the hand joint in SOMA's rest pose),
+    with the fingers straightened to their rest pose relative to the hand (the
+    palm is skinned mostly to the knuckle joints, so a curled or bent-back
+    estimate would tilt it; the thumb keeps its pose), and the fingers pointing
+    the way the forearm leans, as when bracing on a hand, so the wrist bends
+    90° minus the lean rather than past its range. Contact heights use SOMA's
+    skin weights, so they match GEM's mesh where the wrist bends. A second pass
+    catches hands that reach the floor only because the body moved for the
+    other limbs. Arms and legs reach with exact two-bone IK
+    (the elbow and knee keep bending the way they did); the body moves only
+    where a limb cannot reach. The camera-space motion is untouched, so the
+    overlay keeps matching the video.
+  - On the breakdance test clip (mostly on its hands), a hand is planted on
+    73% of frames at 5 cm reach and 82% at 10 cm: palms within 0.5 cm of the
+    floor, flat, sliding 1.5 mm per frame (25 before). On standing dance clips,
+    planted soles are within 0.2–0.3 cm of the floor (1.0–1.2 cm with the
+    previous foot planting), sliding 1.6–2.8 mm per frame (2.8–7.9 before), and
+    far fewer frames dip below the floor.
 - *Body height*: 0 rests the soles exactly on the floor; positive values lift the body
   above it (e.g. to leave room for shoe soles), negative values sink it in.
 - *Smoothing*: the same adaptive filter as for Pose, off by default since Motion
   is already temporal.
 
 The floor (y = 0) is set from the body's lowest point during GEM-predicted foot
-contact, and the results line reports the planted-foot height error before and
-after. New Body Motion runs ask whether the camera is moving; with **No, fixed**
+contact, and the results line reports how often feet and hands were planted and
+how far the body had to move for a limb to reach. New Body Motion runs ask whether the camera is moving; with **No, fixed**
 (the default) the anchored world is produced automatically, and GEM's world is
 kept under *Raw*. A run that estimated camera rotation shows the amount, with a
 one-click *Re-run as fixed camera*.

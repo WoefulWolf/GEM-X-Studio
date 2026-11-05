@@ -965,6 +965,7 @@ const MOTION_DEFAULTS: RefineOptions = {
   depth_smoothing: 4,
   lock_feet: true,
   plant_hands: true,
+  contact_reach_cm: 5,
 }
 
 const signed = (value: number, unit: string) => `${value > 0 ? "+" : ""}${value.toFixed(1)}${unit}`
@@ -986,7 +987,8 @@ function MotionRefinePanel({ job, onRefined }: { job: Job; onRefined: () => void
   }))
   const set = (patch: Partial<RefineOptions>) => setOptions((old) => ({ ...old, ...patch }))
   const report = current?.status === "done" ? current.report : null
-  const plant = report?.plant_feet
+  const planted = report?.contacts
+  const reach = options.contact_reach_cm ?? 5
   const sensitivity = 1 - (options.contact_threshold ?? 0.5)
   const tilt = options.tilt_deg ?? 0
   const roll = options.roll_deg ?? 0
@@ -1114,13 +1116,13 @@ function MotionRefinePanel({ job, onRefined }: { job: Job; onRefined: () => void
       >
         <SwitchField
           label="Plant feet flat on the floor"
-          hint="Hip height + leg IK on predicted foot contacts"
+          hint="Heels and toes on the floor and held there while planted (leg IK); a tilted foot pivots"
           checked={!!options.plant_feet}
           onChange={(plant_feet) => set({ plant_feet })}
         />
         <SwitchField
           label="Plant hands on the floor"
-          hint="GEM's hand contacts: a still hand near the floor rests on it (arm IK) and doesn't slide"
+          hint="Palms flat on the floor and held there while planted (arm IK)"
           checked={!!options.plant_hands}
           onChange={(plant_hands) => set({ plant_hands })}
         />
@@ -1150,6 +1152,23 @@ function MotionRefinePanel({ job, onRefined }: { job: Job; onRefined: () => void
           disabled={!options.plant_feet && !options.plant_hands}
           onChange={(value) => set({ contact_threshold: Number((1 - value).toFixed(2)) })}
         />
+        <RangeField
+          label="Contact reach"
+          value={reach}
+          display={`${reach.toFixed(1)} cm`}
+          min={0}
+          max={20}
+          step={0.5}
+          left="On the floor only"
+          right="Hovering counts"
+          disabled={!options.plant_feet && !options.plant_hands}
+          onChange={(contact_reach_cm) => set({ contact_reach_cm })}
+        />
+        <p className="-mt-2 text-[11px] leading-relaxed text-muted-foreground">
+          A still palm, heel or toe this close to the floor counts as touching it, then is put on the floor and held
+          there. Raise it when hands or feet hover above the floor instead of resting on it (like raising the floor).
+          Sensitivity also sets how still a hand or foot must be.
+        </p>
         <RangeField
           label="Body height"
           value={offset}
@@ -1214,14 +1233,13 @@ function MotionRefinePanel({ job, onRefined }: { job: Job; onRefined: () => void
                 : " · floor from lowest points"}
             {report.depth && ` · ${report.depth.depth_jitter_removed_cm} cm of depth jitter removed`}
             {report.lock_feet && " · contacts locked"}
-            {plant && (
+            {planted && (
               <>
-                {" "}
-                · planted-foot height error {plant.planted_height_error_cm_before} →{" "}
-                <span className="font-medium text-foreground">{plant.planted_height_error_cm_after} cm</span> · feet
-                planted in {Math.round(plant.planted_frame_fraction * 100)}% of frames
-                {plant.hands_planted_frame_fraction != null &&
-                  `, hands in ${Math.round(plant.hands_planted_frame_fraction * 100)}%`}
+                {planted.feet_planted_fraction != null &&
+                  ` · feet planted in ${Math.round(planted.feet_planted_fraction * 100)}% of frames`}
+                {planted.hands_planted_fraction != null &&
+                  ` · hands in ${Math.round(planted.hands_planted_fraction * 100)}%`}
+                {planted.max_root_shift_cm > 0.5 && ` · body moved up to ${planted.max_root_shift_cm} cm to reach`}
               </>
             )}
           </>

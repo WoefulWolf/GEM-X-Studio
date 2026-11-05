@@ -94,6 +94,8 @@ export interface RefineOptions {
   follow_floor?: boolean
   /** Motion: GEM's hand contacts near the floor: hands rest on it (arm IK) and don't slide. */
   plant_hands?: boolean
+  /** Motion: a still palm, heel or toe this close to the floor (cm) counts as touching it. */
+  contact_reach_cm?: number
 }
 
 export interface RefineReport {
@@ -108,11 +110,11 @@ export interface RefineReport {
   }
   depth?: { sigma_frames: number; depth_jitter_removed_cm: number }
   lock_feet?: { planted_slide_mm_per_frame_before: number; max_root_shift_cm: number }
-  plant_feet?: {
-    planted_height_error_cm_before: number
-    planted_height_error_cm_after: number
-    planted_frame_fraction: number
-    hands_planted_frame_fraction?: number
+  /** Floor contacts (palms, heels, toes): planted fractions and the largest body move. */
+  contacts?: {
+    feet_planted_fraction?: number
+    hands_planted_fraction?: number
+    max_root_shift_cm: number
   }
 }
 
