@@ -1,19 +1,31 @@
-import { request, urls, type Preview, type Variant } from "@/lib/api"
+import { request, urls, type Preview, type PreviewVariant } from "@/lib/api"
 
 const CHUNK = 32
 const MAX_CHUNKS = 48 // per store; ~350 MB worst case for 20k-vertex bodies
 
+/** Where the viewer gets each frame's vertices: streamed (MeshStore) or skinned (SkinnedStore). */
+export interface VertexSource {
+  readonly faces: Map<string, Uint32Array>
+  onLoad: (() => void) | null
+  loadFaces(): Promise<void>
+  vertexCount(stream: string): number
+  /** Vertices for one slot if available; otherwise starts loading and returns null. */
+  get(stream: string, slot: number): Float32Array | null
+  ensure(stream: string, slot: number): Promise<Float32Array>
+  prefetch(stream: string, slots: Iterable<number>): void
+}
+
 /** Chunked, LRU-cached vertex streaming for one job's preview bundle. */
-export class MeshStore {
+export class MeshStore implements VertexSource {
   readonly faces = new Map<string, Uint32Array>()
   onLoad: (() => void) | null = null
   private cache = new Map<string, Float32Array>()
   private pending = new Map<string, Promise<Float32Array>>()
   private jobId: string
   private preview: Preview
-  private variant: Variant
+  private variant: PreviewVariant
 
-  constructor(jobId: string, preview: Preview, variant: Variant = "raw") {
+  constructor(jobId: string, preview: Preview, variant: PreviewVariant = "raw") {
     this.jobId = jobId
     this.preview = preview
     this.variant = variant

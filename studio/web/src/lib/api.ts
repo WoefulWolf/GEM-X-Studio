@@ -128,6 +128,8 @@ export interface RefineState {
 }
 
 export type Variant = "raw" | "refined"
+/** Preview bundles: a result variant, or it with an MMD model's limb proportions. */
+export type PreviewVariant = Variant | "model_raw" | "model_refined"
 
 /** An MMD model read for fitting VMD exports (sizes in MMD units). */
 export interface MmdModel {
@@ -284,6 +286,10 @@ export interface Preview {
   media: string
   /** The video carries the source's sound. */
   audio?: boolean
+  /** Skinned bundle: one bind mesh posed per frame in the browser (see SkinnedStore). */
+  skinned?: { joints: number; frames: number; vertices: number }
+  /** Model preview: the MMD model whose limb proportions the body has. */
+  model?: { id: string; name: string; scale: number; ratios: Record<string, number> }
 }
 
 function meta(name: string) {
@@ -349,7 +355,9 @@ export const api = {
   retry: (id: string) => request<Job>(`/api/jobs/${id}/retry`, json("POST")),
   deleteJob: (id: string) => request(`/api/jobs/${id}`, json("DELETE")),
   reveal: (id: string) => request(`/api/jobs/${id}/reveal`, json("POST")),
-  preview: (id: string, variant: Variant = "raw") =>
+  modelPreview: (id: string, variant: Variant, model: string) =>
+    request<{ variant: PreviewVariant }>(`/api/jobs/${id}/model-preview`, json("POST", { variant, model })),
+  preview: (id: string, variant: PreviewVariant = "raw") =>
     request<Preview>(`/api/jobs/${id}/preview?variant=${variant}`),
   refine: (id: string, options: Partial<RefineOptions>) =>
     request<Job>(`/api/jobs/${id}/refine`, json("POST", options)),
@@ -403,9 +411,11 @@ export const urls = {
   inputFrame: (id: string, index: number, height = 720) => `/api/inputs/${id}/frame?index=${index}&height=${height}`,
   jobThumb: (id: string) => `/api/jobs/${id}/thumb`,
   previewMedia: (id: string) => `/api/jobs/${id}/preview/media`,
-  mesh: (id: string, stream: string, start: number, count: number, variant: Variant = "raw") =>
+  mesh: (id: string, stream: string, start: number, count: number, variant: PreviewVariant = "raw") =>
     `/api/jobs/${id}/mesh/${stream}?start=${start}&count=${count}&variant=${variant}`,
-  faces: (id: string, topology: string, variant: Variant = "raw") =>
+  faces: (id: string, topology: string, variant: PreviewVariant = "raw") =>
     `/api/jobs/${id}/faces/${topology}?variant=${variant}`,
+  modelSkin: (id: string, name: string, variant: PreviewVariant) =>
+    `/api/jobs/${id}/model-skin/${name}?variant=${variant}`,
   file: (id: string, path: string) => `/api/jobs/${id}/files/${path}`,
 }

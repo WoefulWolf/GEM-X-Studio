@@ -40,7 +40,13 @@ DEFAULT_SETTINGS = {
     "blender_executable": "",
     "theme": "system",
 }
-VARIANTS = {"raw": "preview", "refined": "refined"}
+VARIANTS = {
+    "raw": "preview",
+    "refined": "refined",
+    # Body Motion with an MMD model's limb proportions (Fit to model), a skinned mesh.
+    "model_raw": "model_raw",
+    "model_refined": "model_refined",
+}
 KINDS = {
     ("pose-image", "body"): "body_pose",
     ("pose-video", "body"): "body_pose",
@@ -414,6 +420,56 @@ def create_app(*, port, native=False, dev=False, token=None):
             media_type="application/octet-stream",
             headers={"X-Slots": str(len(data)), "Cache-Control": "no-cache"},
         )
+
+    @app.post("/api/jobs/{job_id}/model-preview")
+    async def make_model_preview(job_id: str, options: dict = Body(...)):
+        """Build (or reuse) the preview with an MMD model's limb proportions."""
+        from . import model_preview
+
+        variant, model_id = options.get("variant", "refined"), str(options.get("model") or "")
+        if variant not in ("raw", "refined"):
+            raise HTTPException(400, "Unknown variant")
+        try:
+            mmd_model.model_info(model_id)
+        except KeyError:
+            raise HTTPException(
+                404, "That MMD model is no longer stored; choose it again"
+            ) from None
+        if not (variant_dir(job_id, variant) / "preview.json").is_file():
+            raise HTTPException(409, "Run has no results for this variant yet")
+        directory = job_dir(job_id)
+        if not model_preview.is_current(directory, variant, model_id):
+
+            def work():
+                return subprocess.run(
+                    [python_executable(), "-m", "gem_studio.model_preview", str(directory),
+                     variant, model_id],
+                    capture_output=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=900,
+                    env={**os.environ, "CUDA_VISIBLE_DEVICES": ""},
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                )  # fmt: skip
+
+            result = await asyncio.to_thread(work)
+            if result.returncode != 0 or not model_preview.is_current(
+                directory, variant, model_id
+            ):
+                tail = "\n".join((result.stdout + result.stderr).strip().splitlines()[-6:])
+                raise HTTPException(500, f"Could not build the model preview:\n{tail}")
+        return {"variant": f"model_{variant}"}
+
+    @app.get("/api/jobs/{job_id}/model-skin/{name}")
+    def model_skin(job_id: str, name: str, variant: str = "model_refined"):
+        from .model_preview import SKIN_FILES
+
+        if name not in SKIN_FILES or not variant.startswith("model_"):
+            raise HTTPException(404, "Unknown skin data")
+        path = variant_dir(job_id, variant) / f"skin_{name}.bin"
+        if not path.is_file():
+            raise HTTPException(404, "Model preview not built")
+        return FileResponse(path, media_type="application/octet-stream")
 
     @app.get("/api/jobs/{job_id}/faces/{topology}")
     def faces(job_id: str, topology: str, variant: str = "raw"):

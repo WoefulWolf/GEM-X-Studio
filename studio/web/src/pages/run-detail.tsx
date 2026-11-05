@@ -15,6 +15,7 @@ import {
   Sparkles,
   Square,
   Upload,
+  UserRound,
   X,
 } from "lucide-react"
 import { useEffect, useRef, useState, type ReactNode } from "react"
@@ -40,6 +41,7 @@ import {
   type FileEntry,
   type Job,
   type MmdModel,
+  type PreviewVariant,
   type Preview,
   type RefineOptions,
   type Variant,
@@ -117,6 +119,28 @@ export function RunDetailPage({ jobId }: { jobId: string }) {
   }
   if (shownData) viewerShown.current = true
   const preview = { data: shownData }
+  // Fit to model: the same motion on a body with the model's limb proportions (World, 3D).
+  const mmd = useMmdModel()
+  const [body, setBody] = useState<"gem" | "model">("gem")
+  const modelAvailable = !!mmd.model && shownData?.type === "motion"
+  const modelOn = body === "model" && modelAvailable
+  const modelPreview = useQuery({
+    queryKey: ["model-preview", jobId, shown, mmd.model?.id, job?.refine?.finished],
+    queryFn: async () => {
+      const { variant } = await api.modelPreview(jobId, shown, mmd.model!.id)
+      return { variant, data: await api.preview(jobId, variant) }
+    },
+    enabled: modelOn && !!shownData,
+    staleTime: Infinity,
+    retry: false,
+  })
+  useEffect(() => {
+    if (!modelPreview.isError) return
+    toast.error("Could not build the model preview", { description: (modelPreview.error as Error).message })
+    setBody("gem")
+  }, [modelPreview.isError, modelPreview.error])
+  const viewerData = modelOn && modelPreview.data ? modelPreview.data.data : shownData
+  const viewerVariant: PreviewVariant = modelOn && modelPreview.data ? modelPreview.data.variant : shown
 
   if (missing) {
     return (
@@ -182,28 +206,61 @@ export function RunDetailPage({ jobId }: { jobId: string }) {
             <Viewer
               ref={viewer}
               jobId={job.id}
-              preview={preview.data}
-              variant={shown}
+              preview={viewerData ?? preview.data}
+              variant={viewerVariant}
               center={
-                refined && (
-                  <ToggleGroup
-                    type="single"
-                    value={shown}
-                    onValueChange={(value) => value && setVariant(value as Variant)}
-                    aria-label="Result"
-                    className="gap-0.5 rounded-lg bg-black/60 p-1 text-white shadow-lg ring-1 ring-primary/50 backdrop-blur"
-                  >
-                    {(["raw", "refined"] as const).map((value) => (
-                      <ToggleGroupItem
-                        key={value}
-                        value={value}
-                        className="h-8 gap-1.5 rounded-md px-4 text-sm font-medium text-white/70 capitalize hover:bg-white/10 hover:text-white data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:shadow-sm data-[state=on]:hover:bg-primary"
+                (refined || modelAvailable) && (
+                  <div className="flex max-w-full flex-wrap items-center justify-center gap-2">
+                    {refined && (
+                      <ToggleGroup
+                        type="single"
+                        value={shown}
+                        onValueChange={(value) => value && setVariant(value as Variant)}
+                        aria-label="Result"
+                        className="gap-0.5 rounded-lg bg-black/60 p-1 text-white shadow-lg ring-1 ring-primary/50 backdrop-blur"
                       >
-                        {value === "refined" && <Sparkles className="size-4" />}
-                        {value}
-                      </ToggleGroupItem>
-                    ))}
-                  </ToggleGroup>
+                        {(["raw", "refined"] as const).map((value) => (
+                          <ToggleGroupItem
+                            key={value}
+                            value={value}
+                            className="h-8 gap-1.5 rounded-md px-4 text-sm font-medium text-white/70 capitalize hover:bg-white/10 hover:text-white data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:shadow-sm data-[state=on]:hover:bg-primary"
+                          >
+                            {value === "refined" && <Sparkles className="size-4" />}
+                            {value}
+                          </ToggleGroupItem>
+                        ))}
+                      </ToggleGroup>
+                    )}
+                    {modelAvailable && (
+                      <ToggleGroup
+                        type="single"
+                        value={body}
+                        onValueChange={(value) => value && setBody(value as "gem" | "model")}
+                        aria-label="Body proportions"
+                        className="gap-0.5 rounded-lg bg-black/60 p-1 text-white shadow-lg ring-1 ring-white/15 backdrop-blur"
+                      >
+                        <ToggleGroupItem
+                          value="gem"
+                          title="The dancer's proportions, as GEM estimated them"
+                          className="h-8 rounded-md px-3 text-sm font-medium text-white/70 hover:bg-white/10 hover:text-white data-[state=on]:bg-white/90 data-[state=on]:text-black data-[state=on]:hover:bg-white/90"
+                        >
+                          GEM
+                        </ToggleGroupItem>
+                        <ToggleGroupItem
+                          value="model"
+                          title={`Preview with ${mmd.model!.name}'s limb proportions, as the fitted VMD moves it (Fit to model)`}
+                          className="h-8 max-w-[11rem] gap-1.5 rounded-md px-3 text-sm font-medium text-white/70 hover:bg-white/10 hover:text-white data-[state=on]:bg-white/90 data-[state=on]:text-black data-[state=on]:hover:bg-white/90"
+                        >
+                          {modelOn && modelPreview.isFetching ? (
+                            <Loader2 className="size-4 shrink-0 animate-spin" />
+                          ) : (
+                            <UserRound className="size-4 shrink-0" />
+                          )}
+                          <span className="truncate">{mmd.model!.name}</span>
+                        </ToggleGroupItem>
+                      </ToggleGroup>
+                    )}
+                  </div>
                 )
               }
             />
@@ -227,7 +284,7 @@ export function RunDetailPage({ jobId }: { jobId: string }) {
           </TabsList>
           <TabsContent value="export" className="min-h-0 overflow-y-auto">
             {done && preview.data && (
-              <ExportPanel job={job} preview={preview.data} viewer={viewer} variant={shown} />
+              <ExportPanel job={job} preview={preview.data} viewer={viewer} variant={shown} mmd={mmd} />
             )}
           </TabsContent>
           <TabsContent value="refine" className="min-h-0 overflow-y-auto">
@@ -404,11 +461,13 @@ function ExportPanel({
   preview,
   viewer,
   variant,
+  mmd,
 }: {
   job: Job
   preview: Preview
   viewer: React.RefObject<ViewerHandle | null>
   variant: Variant
+  mmd: MmdModelChoice
 }) {
   const queryClient = useQueryClient()
   const files = useQuery({ queryKey: ["files", job.id], queryFn: () => api.files(job.id) })
@@ -424,26 +483,7 @@ function ExportPanel({
   const [armAngle, setArmAngle] = useState(35)
   const [mmdScale, setMmdScale] = useState("12.5")
   const [faceForward, setFaceForward] = useState(true)
-  // MMD model the VMD is fitted to (remembered across runs); none: standard proportions.
-  const [mmdModelId, setMmdModelId] = useState<string | null>(() => readStored(MMD_MODEL_KEY, null))
-  const mmdModel = useQuery({
-    queryKey: ["mmd-model", mmdModelId],
-    queryFn: () => api.mmdModel(mmdModelId!),
-    enabled: !!mmdModelId,
-    retry: false,
-    staleTime: Infinity,
-  })
-  const fitModel = mmdModelId && mmdModel.data ? mmdModel.data : null
-  const chooseMmdModel = (model: MmdModel | null) => {
-    setMmdModelId(model?.id ?? null)
-    writeStored(MMD_MODEL_KEY, model?.id ?? null)
-    if (model) queryClient.setQueryData(["mmd-model", model.id], model)
-  }
-  useEffect(() => {
-    // The stored profile is gone (data folder cleared): forget it.
-    if (mmdModel.isError) chooseMmdModel(null)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mmdModel.isError])
+  const fitModel = mmd.model
   // A moving camera (ViPE or background estimate) is worth exporting by default.
   const movingCamera = !!preview.camera?.mode && preview.camera.mode !== "static"
   const [includeCamera, setIncludeCamera] = useState(movingCamera)
@@ -697,8 +737,8 @@ function ExportPanel({
           </p>
           <MmdModelField
             model={fitModel}
-            loading={!!mmdModelId && mmdModel.isLoading}
-            onChange={chooseMmdModel}
+            loading={mmd.loading}
+            onChange={mmd.choose}
           />
           {fitModel ? (
             <p className="text-[11px] leading-relaxed text-muted-foreground">
@@ -1242,6 +1282,36 @@ function ApplyBar(props: {
 }
 
 const MMD_MODEL_KEY = "gem-studio:mmd-model"
+
+interface MmdModelChoice {
+  model: MmdModel | null
+  loading: boolean
+  choose: (model: MmdModel | null) => void
+}
+
+/** The MMD model chosen under Fit to model (remembered across runs and sessions). */
+function useMmdModel(): MmdModelChoice {
+  const queryClient = useQueryClient()
+  const [id, setId] = useState<string | null>(() => readStored(MMD_MODEL_KEY, null))
+  const query = useQuery({
+    queryKey: ["mmd-model", id],
+    queryFn: () => api.mmdModel(id!),
+    enabled: !!id,
+    retry: false,
+    staleTime: Infinity,
+  })
+  const choose = (model: MmdModel | null) => {
+    setId(model?.id ?? null)
+    writeStored(MMD_MODEL_KEY, model?.id ?? null)
+    if (model) queryClient.setQueryData(["mmd-model", model.id], model)
+  }
+  useEffect(() => {
+    // The stored profile is gone (data folder cleared): forget it.
+    if (query.isError) choose(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query.isError])
+  return { model: id && query.data ? query.data : null, loading: !!id && query.isLoading, choose }
+}
 
 /** Optional MMD model (.pmx) the VMD export is fitted to. */
 function MmdModelField(props: {

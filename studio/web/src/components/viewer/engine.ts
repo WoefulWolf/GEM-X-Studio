@@ -4,7 +4,7 @@ import { OBJExporter } from "three/addons/exporters/OBJExporter.js"
 import { OrbitControls } from "three/addons/controls/OrbitControls.js"
 
 import type { Preview, PreviewInstance } from "@/lib/api"
-import type { MeshStore } from "./mesh-store"
+import type { VertexSource } from "./mesh-store"
 
 export type ViewMode = "overlay" | "camera3d" | "world"
 
@@ -96,7 +96,7 @@ export class ViewerEngine {
   constructor(
     canvas: HTMLCanvasElement,
     private preview: Preview,
-    private store: MeshStore,
+    private store: VertexSource,
   ) {
     this.renderer = new THREE.WebGLRenderer({
       canvas,
@@ -173,7 +173,7 @@ export class ViewerEngine {
   }
 
   /** Swap to another vertex source (e.g. Raw <-> Refined) keeping camera and view. */
-  setSource(preview: Preview, store: MeshStore) {
+  setSource(preview: Preview, store: VertexSource) {
     for (const slot of this.slots) {
       if (!slot) continue
       this.root.remove(slot.depth, slot.color)

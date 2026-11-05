@@ -40,12 +40,13 @@ import { Slider } from "@/components/ui/slider"
 import { Switch } from "@/components/ui/switch"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { api, urls, type Preview, type PreviewFrame, type Variant } from "@/lib/api"
+import { api, urls, type Preview, type PreviewFrame, type PreviewVariant } from "@/lib/api"
 import { formatTimecode } from "@/lib/format"
 import { MUTED_KEY, VOLUME_KEY, readStored, writeStored } from "@/lib/storage"
 import { cn } from "@/lib/utils"
 import { ViewerEngine, type ViewMode } from "./engine"
 import { MeshStore } from "./mesh-store"
+import { SkinnedStore } from "./skinned-store"
 
 const HAND_CHAINS = [
   [0, 1, 2, 3, 4],
@@ -115,7 +116,7 @@ export interface ViewerHandle {
 export interface ViewerProps {
   jobId: string
   preview: Preview
-  variant?: Variant
+  variant?: PreviewVariant
   /** Rendered centred at the top of the viewer (the Raw/Refined switch). */
   center?: React.ReactNode
 }
@@ -167,7 +168,9 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(function Viewer(
 
   // One engine per viewer; switching variant only swaps its vertex source.
   useEffect(() => {
-    const store = new MeshStore(jobId, preview, variant)
+    const store = preview.skinned
+      ? new SkinnedStore(jobId, preview, variant)
+      : new MeshStore(jobId, preview, variant)
     let cancelled = false
     store.loadFaces().then(() => {
       if (cancelled || !canvasRef.current) return
@@ -482,7 +485,9 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(function Viewer(
               </ToggleGroupItem>
             ))}
           </ToggleGroup>
-          <div className="col-span-2 justify-self-center empty:hidden @xl:col-span-1 @xl:col-start-2 @xl:row-start-1">{center}</div>
+          <div className="col-span-2 min-w-0 max-w-full justify-self-center empty:hidden @xl:col-span-1 @xl:col-start-2 @xl:row-start-1">
+            {center}
+          </div>
           <div className="col-start-2 row-start-1 flex items-center gap-1 justify-self-end rounded-lg @xl:col-start-3 bg-black/55 p-0.5 text-white backdrop-blur">
             <IconToggle label={showMesh ? "Hide mesh" : "Show mesh"} active={showMesh} onClick={() => setShowMesh(!showMesh)}>
               {showMesh ? <Eye /> : <EyeOff />}

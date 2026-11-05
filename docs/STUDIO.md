@@ -322,6 +322,18 @@ the head and wrists within about 1.5 cm. Options:
   Studio reads only the bones and the body mesh (no hair, skirts or other
   accessories) and keeps a small profile in `studio_data/mmd_models`; the .pmx
   itself is not stored. The model is remembered for later exports.
+- *Preview with the model's proportions*: with a model chosen, a second switch
+  at the top of the viewer (next to Raw / Refined) toggles between *GEM* and
+  the model. The model view shows the dancer's own body rebuilt with the
+  model's arm and leg lengths (SOMA's bone-length controls), moved the way the
+  fitted VMD moves the model: each frame its lowest point is where the
+  dancer's was. It is a plain body, no hair or clothes, so you can check
+  contacts and reach (shorter arms, longer legs) before opening MMD. Hip and
+  shoulder width, torso and head stay the dancer's, since SOMA cannot change
+  them. It is built once per model and result, in a few seconds on the CPU, and
+  posed as a skinned mesh in the browser (about 5 MB). Without SOMA's
+  pose-dependent corrective shapes, hips and shoulders in extreme poses can
+  differ from GEM's own surface by a few centimetres.
 - *Model arm angle* (without a model): MMD models rest in an A-pose, typically
   30–40° (default 35°). Use 0° for T-pose models.
 - *Scale* (without a model): metres to MMD units (default 1 unit = 8 cm).
