@@ -223,14 +223,14 @@ footwork. Motion's Refine tab offers:
   takes the floor height from the planted feet, smoothed over about a second, so
   slow drift goes and jumps stay. Auto-level would read that drift as a tilted
   floor and tilt the world instead.
-- *Stability*: a single camera judges distance far less precisely than
+- *Depth stability*: a single camera judges distance far less precisely than
   position, so the body wobbles toward and away from the camera, most visible
   from the side. *Depth stabilization* (default 4 frames) smooths only the
   distance to the camera, moving each frame along its own line of sight so the
-  overlay still lines up. *Stop foot sliding* (on by default) keeps planted feet
-  in place by shifting the body; the correction is eased in and short-term
-  only, so it never pulls the motion away from its anchored position. Turn it
-  off for deliberately gliding footwork. On the test dance clip, depth jitter
+  overlay still lines up. *Stop contact sliding* (under *Floor & contacts*, on
+  by default) keeps planted feet and hands in place by shifting the body; the
+  correction is eased in and short-term only, so it never pulls the motion away
+  from its anchored position. Turn it off for deliberately gliding footwork. On the test dance clip, depth jitter
   fell from 3.4 cm to 1.2 cm (the same as sideways), root acceleration along
   depth by about 12×, and planted-foot sliding from 7.3 to 2.9 mm per frame.
 - *Auto-level on the floor* (on by default): GEM can misjudge the camera's
@@ -254,7 +254,7 @@ footwork. Motion's Refine tab offers:
   (a hand on a table is still too), so only a still hand within 15 cm of the
   floor is planted. Its arm then reaches down so the wrist sits at its height
   above the palm (from SOMA's rest pose), GEM's anti-slide hold keeps it in
-  place, and *Stop foot sliding* includes it. Hands never move the body: a
+  place, and *Stop contact sliding* includes it. Hands never move the body: a
   still hand above a lower support would otherwise push that support into the
   floor. Outside contacts, a hand that has sunk into the floor is lifted out of
   it by the same arm IK. On a breakdance clip with brief hand contacts, planted

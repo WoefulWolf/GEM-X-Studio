@@ -1028,11 +1028,8 @@ function MotionRefinePanel({ job, onRefined }: { job: Job; onRefined: () => void
 
       <PanelSection
         id="refine-stability"
-        title="Stability"
-        summary={[
-          options.depth_smoothing ? `Depth ${options.depth_smoothing.toFixed(1)} frames` : "Depth off",
-          options.lock_feet ? "feet locked" : "feet free",
-        ].join(" · ")}
+        title="Depth stability"
+        summary={options.depth_smoothing ? `${options.depth_smoothing.toFixed(1)} frames` : "Off"}
       >
         <RangeField
           label="Depth stabilization"
@@ -1050,12 +1047,6 @@ function MotionRefinePanel({ job, onRefined }: { job: Job; onRefined: () => void
           the camera. This smooths only that distance, along each frame&apos;s line of sight, so the overlay still
           lines up.
         </p>
-        <SwitchField
-          label="Stop foot sliding"
-          hint="Keeps planted feet (and planted hands) in place by moving the body; turn off for gliding footwork"
-          checked={!!options.lock_feet}
-          onChange={(lock_feet) => set({ lock_feet })}
-        />
       </PanelSection>
 
       <PanelSection
@@ -1114,6 +1105,7 @@ function MotionRefinePanel({ job, onRefined }: { job: Job; onRefined: () => void
         summary={[
           options.plant_feet ? `Planted · ${Math.round(sensitivity * 100)}%` : "Not planted",
           options.plant_hands && "hands too",
+          options.lock_feet && "no sliding",
           options.world === "gem" && options.follow_floor && "floor follows",
           offset && `body ${signed(offset, " cm")}`,
         ]
@@ -1131,6 +1123,12 @@ function MotionRefinePanel({ job, onRefined }: { job: Job; onRefined: () => void
           hint="GEM's hand contacts: a still hand near the floor rests on it (arm IK) and doesn't slide"
           checked={!!options.plant_hands}
           onChange={(plant_hands) => set({ plant_hands })}
+        />
+        <SwitchField
+          label="Stop contact sliding"
+          hint="Keeps planted feet and hands in place by moving the body; turn off for gliding footwork"
+          checked={!!options.lock_feet}
+          onChange={(lock_feet) => set({ lock_feet })}
         />
         {options.world === "gem" && (
           <SwitchField
@@ -1215,7 +1213,7 @@ function MotionRefinePanel({ job, onRefined }: { job: Job; onRefined: () => void
                 ? " · floor from foot contacts"
                 : " · floor from lowest points"}
             {report.depth && ` · ${report.depth.depth_jitter_removed_cm} cm of depth jitter removed`}
-            {report.lock_feet && " · feet locked"}
+            {report.lock_feet && " · contacts locked"}
             {plant && (
               <>
                 {" "}

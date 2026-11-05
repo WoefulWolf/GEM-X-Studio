@@ -183,6 +183,9 @@ export class ViewerEngine {
     this.slots = []
     this.preview = preview
     this.store = store
+    // The floor is the lowest point seen so far (where no ground is known): start it again on
+    // the new motion, or a previous result that dipped lower leaves this one hovering above it.
+    this.floor = null
     store.onLoad = () => {
       this.dirty = true
     }
