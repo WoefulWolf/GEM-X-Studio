@@ -25,6 +25,10 @@
   <a href="#original-readme">Original GEM-X README</a>
 </p>
 
+
+https://github.com/user-attachments/assets/5f0d4d00-dffc-4b53-a626-b229a0a75e81
+
+
 ---
 
 <a id="studio-install"></a>
